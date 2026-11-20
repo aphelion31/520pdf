@@ -310,7 +310,7 @@ fn catalog() -> Value {
         (
             "crop",
             "Crop PDF",
-            "Trim the page boundaries.",
+            "Change visible boundaries only, not secure redaction.",
             "Edit",
             ".pdf",
             false,
@@ -358,7 +358,7 @@ fn catalog() -> Value {
         (
             "html-to-pdf",
             "HTML to PDF",
-            "Convert an uploaded HTML document safely.",
+            "Convert uploaded HTML to text-only PDF (no CSS/images).",
             "Convert",
             ".html,.htm",
             false,
@@ -422,7 +422,7 @@ fn catalog() -> Value {
         (
             "redact",
             "Redact PDF",
-            "Permanently remove selected content.",
+            "Rasterize pages and permanently remove selected rectangles.",
             "Security",
             ".pdf",
             false,
@@ -438,7 +438,7 @@ fn catalog() -> Value {
         (
             "translate",
             "Translate PDF",
-            "Translate document text with your configured provider.",
+            "Translate extracted text, not the PDF layout, with your provider.",
             "AI",
             ".pdf",
             false,
