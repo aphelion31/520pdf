@@ -1,0 +1,24 @@
+{
+  "openapi": "3.0.3",
+  "info": {"title": "Compress PDF API", "version": "0.1.0", "description": "Kompresi PDF menuju target ukuran. Login dokumentasi berbeda dari Bearer token API. Hasil bisa OVER_TARGET jika target tidak dapat dicapai."},
+  "servers": [{"url": "/"}],
+  "components": {"securitySchemes": {"webhookToken": {"type": "http", "scheme": "bearer", "description": "WEBHOOK_SECRET, bukan password login docs"}}},
+  "paths": {
+    "/health": {"get": {"summary": "Status layanan", "responses": {"200": {"description": "ok", "content": {"text/plain": {"schema": {"type": "string"}}}}}}},
+    "/compress": {"post": {
+      "summary": "Kompresi PDF",
+      "security": [{"webhookToken": []}],
+      "requestBody": {"required": true, "content": {"multipart/form-data": {"schema": {"type": "object", "required": ["file"], "properties": {"file": {"type": "string", "format": "binary", "description": "File PDF. Batas request default 50 MiB termasuk multipart."}, "target_kb": {"type": "number", "exclusiveMinimum": true, "minimum": 0, "maximum": 100000, "default": 250, "description": "Target KB desimal (1000 byte)"}}}}}},
+      "responses": {
+        "200": {"description": "PDF terkompresi. Periksa X-Compress-Status: OK atau OVER_TARGET.", "content": {"application/pdf": {"schema": {"type": "string", "format": "binary"}}}, "headers": {"X-Compress-Status": {"schema": {"type": "string", "enum": ["OK", "OVER_TARGET"]}}, "X-Compress-Dpi": {"schema": {"type": "integer"}}, "X-Compress-Quality": {"schema": {"type": "integer"}}, "X-Compress-Size": {"schema": {"type": "integer"}, "description": "Ukuran hasil dalam byte"}}},
+        "401": {"description": "Bearer token salah atau tidak ada"},
+        "413": {"description": "Upload melebihi batas"},
+        "415": {"description": "Bukan PDF"},
+        "422": {"description": "File hilang, PDF rusak, atau target tidak valid"},
+        "500": {"description": "Worker gagal"},
+        "503": {"description": "Layanan berhenti"},
+        "504": {"description": "Kompresi melewati timeout"}
+      }
+    }}
+  }
+}
