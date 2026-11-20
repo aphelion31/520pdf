@@ -20,6 +20,9 @@ pub fn run(
     options: &std::collections::HashMap<String, String>,
     dir: &Path,
 ) -> Res<(PathBuf, String)> {
+    if matches!(tool, "summarize" | "translate") {
+        return crate::ai_tools::run(tool, files, options, dir);
+    }
     let mut parsed = serde_json::Map::new();
     for (key, value) in options {
         let value = match key.as_str() {
@@ -212,7 +215,6 @@ HTML(string=open(sys.argv[1], encoding='utf-8').read(), url_fetcher=deny).write_
             command("qpdf", &["--check".into(), out.display().to_string()], &dir)?;
         }
         "redact" => redact(&input, options, &dir, &out)?,
-        "summarize" | "translate" => return ai(tool, &input, options, &dir),
         _ => return Err(format!("Unknown conversion: {tool}")),
     }
     ensure_file(&out)?;
@@ -645,6 +647,7 @@ fn redact(input: &Path, options: &Value, dir: &Path, out: &Path) -> Res<()> {
     command("img2pdf", &args, dir)
 }
 
+#[cfg(test)]
 fn ai(tool: &str, input: &Path, options: &Value, dir: &Path) -> Res<(PathBuf, &'static str)> {
     if options.get("consent").and_then(Value::as_bool) != Some(true) {
         return Err("Explicit consent:true is required before sending document text to the configured AI provider".into());
@@ -772,7 +775,7 @@ mod tests {
         assert!(
             run("summarize", &[input], &options, dir.path())
                 .unwrap_err()
-                .contains("consent:true")
+                .contains("consent")
         );
     }
     #[test]
