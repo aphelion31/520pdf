@@ -135,6 +135,16 @@ pub fn run(
     options: &HashMap<String, String>,
     dir: &Path,
 ) -> Result<(PathBuf, String)> {
+    run_with_provider(tool, files, options, dir, None)
+}
+
+fn run_with_provider(
+    tool: &str,
+    files: &[PathBuf],
+    options: &HashMap<String, String>,
+    dir: &Path,
+    test_provider: Option<&Provider>,
+) -> Result<(PathBuf, String)> {
     if !matches!(tool, "summarize" | "translate") {
         return Err("Unsupported AI tool".into());
     }
@@ -144,7 +154,13 @@ pub fn run(
     if options.get("consent").map(String::as_str) != Some("true") {
         return Err("Explicit consent is required before sending document text to the configured AI provider".into());
     }
-    let provider = configured()?;
+    let configured_provider;
+    let provider = if let Some(provider) = test_provider {
+        provider
+    } else {
+        configured_provider = configured()?;
+        &configured_provider
+    };
     let prompt = if tool == "translate" {
         let lang = language(
             options
@@ -248,7 +264,32 @@ pub fn run(
     if text.trim().is_empty() {
         return Err("No extractable text. Enable OCR first".into());
     }
-    let result = request(&provider, &prompt, &text)?;
+    let result = if tool == "translate" {
+        let mut pages: Vec<&str> = text.split('\u{c}').collect();
+        if pages.last() == Some(&"") {
+            pages.pop();
+        }
+        if pages.len() > 20 {
+            return Err("Translation is limited to 20 pages. Split the document first".into());
+        }
+        let mut translated = Vec::with_capacity(pages.len());
+        let mut total = 0usize;
+        for page in pages {
+            let result = if page.trim().is_empty() {
+                String::new()
+            } else {
+                request(provider, &prompt, page)?.replace('\u{c}', "\n")
+            };
+            total = total.saturating_add(result.len());
+            if total > 2_000_000 {
+                return Err("AI response exceeds safety limit".into());
+            }
+            translated.push(result);
+        }
+        translated.join("\u{c}")
+    } else {
+        request(provider, &prompt, &text)?
+    };
     let output =
         if tool == "translate" && options.get("bilingual").map(String::as_str) == Some("true") {
             format!("Original:\n{text}\n\nTranslation:\n{result}")
@@ -304,6 +345,99 @@ mod tests {
         io::{Read, Write},
         net::TcpListener,
     };
+    #[test]
+    #[ignore = "requires libreoffice and pdftotext, plus fonts supporting Vietnamese and Japanese"]
+    fn runtime_unicode_pdf_with_mock() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let source = dir.join("input.html");
+        fs::write(&source, "<!doctype html><html><body><p>First page</p><p style=\"page-break-before:always\">Second page</p></body></html>").unwrap();
+        command(
+            "libreoffice",
+            &[
+                format!(
+                    "-env:UserInstallation=file://{}",
+                    dir.join("input-profile").display()
+                ),
+                "--headless".into(),
+                "--convert-to".into(),
+                "pdf".into(),
+                "--outdir".into(),
+                dir.display().to_string(),
+                source.display().to_string(),
+            ],
+            dir,
+        )
+        .unwrap();
+        let input = dir.join("input.pdf");
+        assert!(input.is_file());
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for text in ["Xin chào Việt Nam", "日本語の文章"] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buffer = [0; 8192];
+                let n = stream.read(&mut buffer).unwrap();
+                assert!(String::from_utf8_lossy(&buffer[..n]).contains("Bearer test-key"));
+                let body =
+                    serde_json::json!({"choices":[{"message":{"content":text}}]}).to_string();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .unwrap();
+            }
+        });
+        let provider = Provider {
+            url: endpoint(&format!("http://{address}"), true).unwrap(),
+            key: "test-key".into(),
+            model: "mock".into(),
+        };
+        let mut options = HashMap::from([
+            ("target_language".into(), "Japanese".into()),
+            ("output_format".into(), "pdf".into()),
+        ]);
+        assert!(
+            run_with_provider(
+                "translate",
+                &[input.clone()],
+                &options,
+                dir,
+                Some(&provider)
+            )
+            .unwrap_err()
+            .contains("consent")
+        );
+        options.insert("consent".into(), "true".into());
+        let (pdf, mime) =
+            run_with_provider("translate", &[input], &options, dir, Some(&provider)).unwrap();
+        assert_eq!(mime, "application/pdf");
+        server.join().unwrap();
+        let extracted = dir.join("output.txt");
+        command(
+            "pdftotext",
+            &[
+                "-enc".into(),
+                "UTF-8".into(),
+                pdf.display().to_string(),
+                extracted.display().to_string(),
+            ],
+            dir,
+        )
+        .unwrap();
+        let text = fs::read_to_string(extracted).unwrap();
+        assert!(text.contains("Xin chào Việt Nam"), "{text:?}");
+        assert!(text.contains("日本語の文章"), "{text:?}");
+        let pages: Vec<_> = text.split('\u{c}').collect();
+        assert!(
+            pages[0].contains("Xin chào Việt Nam")
+                && pages.get(1).is_some_and(|p| p.contains("日本語の文章")),
+            "{text:?}"
+        );
+    }
+
     #[test]
     fn mock_provider_and_safety() {
         assert!(endpoint("http://example.com", true).is_err());
