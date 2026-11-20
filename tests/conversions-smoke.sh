@@ -26,7 +26,7 @@ PS
 gs -q -dBATCH -dNOPAUSE -sDEVICE=pdfwrite -sOutputFile="$work/first.pdf" "$work/first.ps"
 gs -q -dBATCH -dNOPAUSE -sDEVICE=pdfwrite -sOutputFile="$work/second.pdf" "$work/second.ps"
 cat > "$work/input.html" <<'HTML'
-<html><head><style>HIDDEN STYLE</style></head><body><p>SAFE HTML VISIBLE</p><img src="file:///etc/passwd"><img src="http://169.254.169.254/latest/meta-data/"><iframe src="http://127.0.0.1:8080/health">HIDDEN FRAME</iframe><script>HIDDEN SCRIPT</script></body></html>
+<html><head><style>@import url('http://127.0.0.1:8080/health'); .hidden { display: none } .break { break-before: page }</style></head><body><p>SAFE HTML VISIBLE</p><p class="hidden">HIDDEN CSS</p><img src="file:///etc/passwd"><img src="http://169.254.169.254/latest/meta-data/"><iframe src="http://127.0.0.1:8080/health">HIDDEN FRAME</iframe><script>HIDDEN SCRIPT</script><p class="break">SECOND PAGE</p></body></html>
 HTML
 python3 - "$work" <<'PY'
 import sys, zipfile
@@ -64,9 +64,12 @@ check_pdf "$work/html.pdf"
 pdftotext "$work/html.pdf" "$work/html.txt"
 grep -q 'SAFE HTML VISIBLE' "$work/html.txt"
 if grep -Eq 'HIDDEN|root:|169\.254|127\.0\.0\.1' "$work/html.txt"; then echo 'HTML resource/script leak' >&2; exit 1; fi
+pdfinfo "$work/html.pdf" | grep -Eq '^Pages:[[:space:]]+2$'
 post compare "$work/compare.txt" -F "files=@$work/first.pdf" -F "files=@$work/second.pdf"
 grep -q ALPHA "$work/compare.txt"
 grep -q BETA "$work/compare.txt"
+grep -q 'Visual comparison' "$work/compare.txt"
+grep -Eq 'Page 1: [1-9][0-9]* of [0-9]+ pixels differ' "$work/compare.txt"
 post pdf-to-markdown "$work/result.md" -F "files=@$work/first.pdf"
 grep -q 'SAFE SECRET ALPHA' "$work/result.md"
 post protect "$work/protected.pdf" -F "files=@$work/first.pdf" -F 'password=smoke-secret' -F 'owner_password=smoke-owner'
@@ -80,7 +83,7 @@ check_pdf "$work/archive.pdf"
 pdfinfo -meta "$work/archive.pdf" | grep -q 'pdfaid:part'
 pdftoppm -r 180 -png -singlefile "$work/first.pdf" "$work/scan"
 img2pdf "$work/scan.png" --output "$work/scan.pdf"
-post scan-to-pdf "$work/ocr.pdf" -F "files=@$work/scan.pdf" -F 'language=eng'
+post scan-to-pdf "$work/ocr.pdf" -F "files=@$work/scan.pdf" -F 'language=eng' -F 'deskew=true'
 check_pdf "$work/ocr.pdf"
 pdftotext "$work/ocr.pdf" - | grep -q 'SECRET'
 post repair "$work/repaired.pdf" -F "files=@$work/damaged.pdf"
@@ -96,6 +99,7 @@ python3 - "$mean" <<'PY'
 import sys
 assert float(sys.argv[1]) < 0.001, 'Fully redacted page contains non-black pixels'
 PY
+if grep -a -q 'SECRET' "$work/redacted.pdf"; then echo 'Redacted source bytes survived' >&2; exit 1; fi
 # Explicitly exercise rejection only. No paid/provider AI request is permitted.
 for tool in summarize translate; do
     code=$(curl --silent --show-error --max-time 30 -o "$work/ai-error.json" -w '%{http_code}' -F "files=@$work/first.pdf" -F 'consent=false' "$base/api/tools/$tool")

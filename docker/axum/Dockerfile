@@ -12,7 +12,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl ghostscript qpdf poppler-utils imagemagick tesseract-ocr \
     tesseract-ocr-eng tesseract-ocr-ind tesseract-ocr-vie ocrmypdf img2pdf mupdf-tools \
-    libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation fonts-dejavu-core \
+    libreoffice-writer libreoffice-calc libreoffice-impress python3-weasyprint fonts-liberation fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1001 circleit && useradd --uid 1001 --gid circleit --create-home circleit \
     && install -d -o circleit -g circleit -m 700 /tmp/pdf520

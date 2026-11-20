@@ -1,4 +1,4 @@
-//! Conversion tools. Commands never use a shell, and HTML is rendered as plain text.
+//! Conversion tools. Commands never use a shell; HTML resource loading is denied.
 use lopdf::Document;
 use serde_json::Value;
 use std::{
@@ -65,13 +65,26 @@ fn run_value(
         "html-to-pdf" => {
             let source =
                 fs::read_to_string(&input).map_err(|e| format!("HTML must be UTF-8: {e}"))?;
-            let text = html_text(&source);
-            if text.trim().is_empty() {
-                return Err("HTML contains no visible text".into());
+            if source.len() > 2_000_000 {
+                return Err("HTML exceeds the 2 MB limit".into());
             }
-            let plain = dir.join("sanitized.txt");
-            fs::write(&plain, text).map_err(|e| e.to_string())?;
-            office_pdf(&plain, &dir, &out)?;
+            // WeasyPrint does not execute JavaScript. Its fetcher is the only resource
+            // entry point, including CSS imports, fonts, images and file URLs.
+            command(
+                "python3",
+                &[
+                    "-c".into(),
+                    r#"import sys
+from weasyprint import HTML
+def deny(url, *args, **kwargs):
+    raise ValueError('External and local resources are disabled')
+HTML(string=open(sys.argv[1], encoding='utf-8').read(), url_fetcher=deny).write_pdf(sys.argv[2])"#
+                        .into(),
+                    input.display().to_string(),
+                    out.display().to_string(),
+                ],
+                &dir,
+            )?;
         }
         "compare" => {
             if files.len() != 2 {
@@ -83,13 +96,15 @@ fn run_value(
                 &dir,
                 "right.txt",
             )?;
+            let mut report = compare_text(&a, &b);
             if a.trim().is_empty() || b.trim().is_empty() {
-                return Err(
-                    "Both PDFs must contain extractable text. Run OCR on scanned documents first"
-                        .into(),
-                );
+                report.push_str("Warning: at least one PDF has no extractable text. OCR is needed for text comparison.\n");
             }
-            let report = compare_text(&a, &b);
+            report.push_str(&compare_visual(
+                &input,
+                &files[1].canonicalize().map_err(|e| e.to_string())?,
+                &dir,
+            )?);
             let path = dir.join("comparison.txt");
             fs::write(&path, report).map_err(|e| e.to_string())?;
             return Ok((path, "text/plain; charset=utf-8"));
@@ -165,21 +180,22 @@ fn run_value(
             {
                 return Err("Invalid OCR language code".into());
             }
-            command(
-                "ocrmypdf",
-                &[
-                    "--skip-text".into(),
-                    "--output-type".into(),
-                    "pdf".into(),
-                    "--optimize".into(),
-                    "0".into(),
-                    "--language".into(),
-                    language.into(),
-                    input.display().to_string(),
-                    out.display().to_string(),
-                ],
-                &dir,
-            )?;
+            let mut args = vec![
+                "--skip-text".into(),
+                "--output-type".into(),
+                "pdf".into(),
+                "--optimize".into(),
+                "0".into(),
+                "--language".into(),
+                language.into(),
+            ];
+            match string_option(options, "deskew").unwrap_or("false") {
+                "true" => args.push("--deskew".into()),
+                "false" => {}
+                _ => return Err("deskew must be true or false".into()),
+            }
+            args.extend([input.display().to_string(), out.display().to_string()]);
+            command("ocrmypdf", &args, &dir)?;
         }
         "repair" => {
             // MuPDF rebuilds recoverable xref tables and streams, it cannot recover missing bytes.
@@ -332,6 +348,7 @@ fn pdf_text(input: &Path, dir: &Path, filename: &str) -> Res<String> {
 }
 
 /// Deliberately not a browser: discard all markup, scripts, styles, URLs and embedded assets.
+#[cfg(test)]
 fn html_text(source: &str) -> String {
     let mut text = String::new();
     let mut rest = source;
@@ -379,12 +396,9 @@ fn html_text(source: &str) -> String {
 }
 fn compare_text(a: &str, b: &str) -> String {
     if a == b {
-        return "Extracted text is identical. This does not compare visual layout or images.\n"
-            .into();
+        return "Extracted text is identical.\n".into();
     }
-    let mut out = String::from(
-        "Extracted-text comparison only. Images and visual layout are not compared.\n- first PDF\n+ second PDF\n\n",
-    );
+    let mut out = String::from("Extracted-text comparison:\n- first PDF\n+ second PDF\n\n");
     let left: Vec<_> = a.lines().collect();
     let right: Vec<_> = b.lines().collect();
     for i in 0..left.len().max(right.len()) {
@@ -399,6 +413,70 @@ fn compare_text(a: &str, b: &str) -> String {
         }
     }
     out
+}
+
+fn compare_visual(a: &Path, b: &Path, dir: &Path) -> Res<String> {
+    let left = Document::load(a)
+        .map_err(|e| format!("Read first PDF: {e}"))?
+        .get_pages()
+        .len();
+    let right = Document::load(b)
+        .map_err(|e| format!("Read second PDF: {e}"))?
+        .get_pages()
+        .len();
+    if left == 0 || right == 0 || left > 100 || right > 100 {
+        return Err("Visual comparison supports 1..100 pages per PDF".into());
+    }
+    let mut report =
+        format!("\nVisual comparison (72 dpi, RGB; page counts {left} and {right}):\n");
+    for page in 1..=left.min(right) {
+        let mut images = Vec::new();
+        for (label, path) in [("left", a), ("right", b)] {
+            let prefix = dir.join(format!("compare-{label}-{page}"));
+            command(
+                "pdftoppm",
+                &[
+                    "-f".into(),
+                    page.to_string(),
+                    "-l".into(),
+                    page.to_string(),
+                    "-r".into(),
+                    "72".into(),
+                    "-scale-to".into(),
+                    "2000".into(),
+                    "-singlefile".into(),
+                    "-png".into(),
+                    path.display().to_string(),
+                    prefix.display().to_string(),
+                ],
+                dir,
+            )?;
+            let file = prefix.with_extension("png");
+            let image = image::open(&file)
+                .map_err(|e| format!("Read rendered page: {e}"))?
+                .to_rgb8();
+            fs::remove_file(file).map_err(|e| e.to_string())?;
+            images.push(image);
+        }
+        if images[0].dimensions() != images[1].dimensions() {
+            report.push_str(&format!(
+                "Page {page}: dimensions differ {:?} vs {:?}\n",
+                images[0].dimensions(),
+                images[1].dimensions()
+            ));
+        } else {
+            let changed = images[0]
+                .pixels()
+                .zip(images[1].pixels())
+                .filter(|(a, b)| a != b)
+                .count();
+            report.push_str(&format!(
+                "Page {page}: {changed} of {} pixels differ\n",
+                images[0].width() as u64 * images[0].height() as u64
+            ));
+        }
+    }
+    Ok(report)
 }
 
 fn redact(input: &Path, options: &Value, dir: &Path, out: &Path) -> Res<()> {
