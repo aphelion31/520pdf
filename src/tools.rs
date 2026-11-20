@@ -70,14 +70,80 @@ pub fn run(
     if pages.is_empty() {
         return Err("PDF has no pages".into());
     }
-    let selected = selection(options.get("pages").map(String::as_str), pages.len() as u32)?;
+    if tool == "split"
+        && options
+            .get("mode")
+            .is_some_and(|m| m == "all" || m == "ranges")
+    {
+        use std::io::Write;
+        let groups: Vec<Vec<u32>> = if options["mode"] == "all" {
+            (1..=pages.len() as u32).map(|n| vec![n]).collect()
+        } else {
+            let ranges = options.get("ranges").ok_or("ranges is required")?;
+            ranges
+                .split(';')
+                .map(|r| selection(Some(r), pages.len() as u32))
+                .collect::<Result<Vec<_>>>()?
+        };
+        if groups.is_empty()
+            || groups.len() > 500
+            || groups.iter().map(Vec::len).sum::<usize>() > 10_000
+        {
+            return Err("Split ZIP supports at most 500 outputs and 10000 total pages".into());
+        }
+        let output = dir.join("split.zip");
+        if inputs.iter().any(|i| {
+            i == &output
+                || (i.canonicalize().ok().is_some()
+                    && i.canonicalize().ok() == output.canonicalize().ok())
+        }) {
+            return Err("Output would overwrite an input".into());
+        }
+        let file = std::fs::File::create(&output).map_err(err)?;
+        let mut zip = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (index, group) in groups.iter().enumerate() {
+            let mut part = doc.clone();
+            let ids: Vec<_> = group.iter().map(|n| pages[n]).collect();
+            rebuild_pages(&mut part, &ids)?;
+            part.prune_objects();
+            part.compress();
+            let mut bytes = Vec::new();
+            part.save_to(&mut bytes).map_err(err)?;
+            zip.start_file(format!("part-{:03}.pdf", index + 1), opts)
+                .map_err(err)?;
+            zip.write_all(&bytes).map_err(err)?;
+        }
+        zip.finish().map_err(err)?;
+        return Ok((output, "application/zip".into()));
+    }
+    let selected = selection_with_duplicates(
+        options.get("pages").map(String::as_str),
+        pages.len() as u32,
+        tool == "organize",
+    )?;
     match tool {
         "merge" | "image-to-pdf" => {}
         "split" | "organize" => {
             if !options.contains_key("pages") {
                 return Err("pages is required, e.g. 1,3-5".into());
             }
-            let ids: Vec<_> = selected.iter().map(|n| pages[n]).collect();
+            let mut ids = Vec::new();
+            let mut seen = HashSet::new();
+            for n in selected {
+                let id = pages[&n];
+                if seen.insert(id) {
+                    ids.push(id);
+                } else {
+                    materialize(&mut doc, id)?;
+                    let page = doc.get_dictionary(id).map_err(err)?.clone();
+                    if page.has(b"Annots") {
+                        return Err("Duplicating annotated pages is unsupported".into());
+                    }
+                    ids.push(doc.add_object(page));
+                }
+            }
             rebuild_pages(&mut doc, &ids)?;
         }
         "rotate" => {
@@ -160,7 +226,7 @@ pub fn run(
             }
         }
         "watermark" | "sign" | "page-numbers" => {
-            if tool == "sign" && options.contains_key("image_base64") {
+            if (tool == "sign" || tool == "watermark") && options.contains_key("image_base64") {
                 for n in selected {
                     image_signature(&mut doc, pages[&n], options)?;
                 }
@@ -294,6 +360,13 @@ fn integer(options: &Options, key: &str, default: i64) -> Result<i64> {
         .unwrap_or(Ok(default))
 }
 fn selection(value: Option<&str>, count: u32) -> Result<Vec<u32>> {
+    selection_with_duplicates(value, count, false)
+}
+fn selection_with_duplicates(
+    value: Option<&str>,
+    count: u32,
+    duplicates: bool,
+) -> Result<Vec<u32>> {
     let Some(value) = value else {
         return Ok((1..=count).collect());
     };
@@ -317,8 +390,11 @@ fn selection(value: Option<&str>, count: u32) -> Result<Vec<u32>> {
             return Err(format!("Page selection must be within 1-{count}"));
         }
         for n in a..=b {
-            if !seen.insert(n) {
+            if !seen.insert(n) && !duplicates {
                 return Err("Duplicate pages are not supported".into());
+            }
+            if out.len() >= 10000 {
+                return Err("At most 10000 selected pages are supported".into());
             }
             out.push(n);
         }
@@ -578,6 +654,28 @@ fn image_signature(doc: &mut Document, id: ObjectId, options: &Options) -> Resul
     let name = format!("Signature{}", image.0);
     objects.set(name.as_bytes(), image);
     resources.set("XObject", objects);
+    let opacity = number(options, "opacity", 1.)?;
+    if !(0. ..=1.).contains(&opacity) {
+        return Err("opacity must be between 0 and 1".into());
+    }
+    let rotation = number(options, "rotation", 0.)?.to_radians();
+    let (sin, cos) = rotation.sin_cos();
+    let mut states = match resources.get(b"ExtGState") {
+        Ok(o) => doc
+            .dereference(o)
+            .map_err(err)?
+            .1
+            .as_dict()
+            .map_err(err)?
+            .clone(),
+        Err(_) => Dictionary::new(),
+    };
+    let state = format!("ImageOpacity{}", image.0);
+    states.set(
+        state.as_bytes(),
+        dictionary! {"Type"=>"ExtGState","ca"=>opacity,"CA"=>opacity},
+    );
+    resources.set("ExtGState", states);
     doc.get_dictionary_mut(id)
         .map_err(err)?
         .set("Resources", resources);
@@ -586,7 +684,7 @@ fn image_signature(doc: &mut Document, id: ObjectId, options: &Options) -> Resul
     contents.extend(doc.get_page_contents(id).into_iter().map(Object::Reference));
     let suffix = doc.add_object(Stream::new(
         dictionary! {},
-        format!("\nQ\nq {width} 0 0 {height} {x} {y} cm /{name} Do Q\n").into_bytes(),
+        format!("\nQ\nq /{state} gs {cos} {sin} {} {cos} {x} {y} cm {width} 0 0 {height} 0 0 cm /{name} Do Q\n", -sin).into_bytes(),
     ));
     contents.push(suffix.into());
     doc.get_dictionary_mut(id)
@@ -1227,6 +1325,69 @@ mod tests {
                 .unwrap(),
             b"Yes"
         );
+    }
+    #[test]
+    fn split_zip_duplicate_and_image_watermark() {
+        use std::io::Read;
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("input.pdf");
+        fixture().save(&input).unwrap();
+        for (opts, expected) in [
+            (
+                Options::from([("mode".into(), "all".into())]),
+                vec![1, 1, 1],
+            ),
+            (
+                Options::from([
+                    ("mode".into(), "ranges".into()),
+                    ("ranges".into(), "1-2;3".into()),
+                ]),
+                vec![2, 1],
+            ),
+        ] {
+            let (path, mime) = run("split", &[input.clone()], &opts, dir.path()).unwrap();
+            assert_eq!(mime, "application/zip");
+            let mut zip = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
+            assert_eq!(zip.len(), expected.len());
+            for (i, count) in expected.iter().enumerate() {
+                let mut data = Vec::new();
+                zip.by_index(i).unwrap().read_to_end(&mut data).unwrap();
+                assert_eq!(Document::load_mem(&data).unwrap().get_pages().len(), *count);
+            }
+        }
+        let (path, _) = run(
+            "organize",
+            &[input.clone()],
+            &Options::from([("pages".into(), "2,1,2".into())]),
+            dir.path(),
+        )
+        .unwrap();
+        let d = load(&path).unwrap();
+        assert_eq!(d.get_pages().len(), 3);
+        assert_ne!(d.get_pages()[&1], d.get_pages()[&3]);
+        let image_path = dir.path().join("stamp.png");
+        image::RgbaImage::from_pixel(4, 4, image::Rgba([255, 0, 0, 128]))
+            .save(&image_path)
+            .unwrap();
+        let opts = Options::from([
+            (
+                "image_base64".into(),
+                base64::engine::general_purpose::STANDARD
+                    .encode(std::fs::read(image_path).unwrap()),
+            ),
+            ("opacity".into(), "0.5".into()),
+            ("rotation".into(), "30".into()),
+            ("pages".into(), "2".into()),
+        ]);
+        let (path, _) = run("watermark", &[input], &opts, dir.path()).unwrap();
+        let d = load(&path).unwrap();
+        assert!(
+            d.objects
+                .values()
+                .any(|o| o.as_stream().ok().is_some_and(|s| s.dict.has(b"SMask")))
+        );
+        let content = d.get_page_content(d.get_pages()[&2]);
+        assert!(String::from_utf8_lossy(&content).contains("ImageOpacity"));
     }
     #[test]
     fn numeric_validation() {
