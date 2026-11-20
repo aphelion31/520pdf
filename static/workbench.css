@@ -1,0 +1,23 @@
+/* Local document workbench, using the existing 520pdf palette. */
+#page-workbench { margin: 20px 0; padding-top: 20px; border-top: 1px solid var(--rule); }
+#page-workbench h3, #page-workbench h4 { margin: 0 0 8px; }
+.preview-status { color: var(--secondary); font-size: 13px; margin: 0 0 12px; }
+.page-grid { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; padding: 0; margin: 0; }
+.page-card { min-width: 0; padding: 12px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--surface); font-size: 13px; }
+.page-card[draggable=true] { cursor: grab; }
+.page-image { min-height: 160px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: var(--soft); margin-bottom: 8px; }
+.page-image canvas { max-width: 100%; height: auto; }
+.page-actions { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 8px; }
+.page-action { min-height: 32px; padding: 4px 8px; font-size: 12px; }
+.page-select { display: flex; align-items: center; gap: 4px; width: 100%; }
+.rectangle-editor, .placement-preview, .signature-editor { margin-top: 20px; }
+.rectangle-stage, .placement-stage { position: relative; display: table; max-width: 100%; line-height: 0; background: var(--surface); border: 1px solid var(--rule); }
+.rectangle-stage { touch-action: none; cursor: crosshair; }
+.rectangle-stage canvas, .placement-stage canvas { display: block; max-width: 100%; height: auto; }
+.rectangle-box { position: absolute; border: 2px solid var(--accent); background: var(--accent-soft); opacity: .55; pointer-events: none; }
+.rectangle-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-width: 360px; margin-top: 12px; }
+.rectangle-inputs label { display: grid; gap: 4px; font-size: 13px; }
+.rectangle-inputs input { min-width: 0; width: 100%; padding: 8px; border: 1px solid var(--rule); border-radius: var(--radius); }
+.placement-label { position: absolute; line-height: 1; color: var(--accent); font-size: 12px; overflow-wrap: anywhere; }
+.signature-canvas { display: block; max-width: 100%; border: 1px solid var(--rule); background: var(--surface); touch-action: none; }
+.signature-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }

@@ -8,7 +8,9 @@
   <title>520pdf · A little love for your PDFs</title>
   <link rel="stylesheet" href="/assets/basecoat.css">
   <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/workbench.css">
   <script src="/assets/app.js" defer></script>
+  <script src="/assets/workbench.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#tools">Skip to tools</a>
@@ -43,6 +45,7 @@
           <div id="dropzone" class="dropzone"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m-4 4 4-4 4 4M4 15v5h16v-5"/></svg><label class="btn" for="file-input" id="file-label">Choose files</label><input id="file-input" class="file-input" type="file"><p id="upload-hint">Or drop files here</p></div>
           <ol id="file-list" class="file-list" aria-label="Selected files in processing order"></ol>
           <p id="file-summary" class="file-summary" role="status"></p>
+          <div id="page-workbench" hidden></div>
           <div id="option-fields" class="option-fields"></div>
           <p class="upload-privacy">Your files will be uploaded when you select Process</p>
           <button class="btn process-button" id="process" type="submit" disabled>Process</button>

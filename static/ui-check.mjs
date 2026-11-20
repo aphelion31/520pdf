@@ -7,6 +7,13 @@ import { dirname, resolve } from 'node:path';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || resolve(dirname(process.execPath), '../lib/node_modules/@playwright/mcp/node_modules/playwright'));
 const ids = 'merge split organize compress rotate crop watermark page-numbers forms sign image-to-pdf office-to-pdf html-to-pdf compare pdf-to-markdown unlock protect pdfa scan-to-pdf repair redact summarize translate'.split(' ');
+function samplePdf() {
+  const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Resources << >> /Contents 5 0 R >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Resources << >> /Contents 5 0 R >>', '<< /Length 0 >>\nstream\n\nendstream'];
+  let pdf = '%PDF-1.4\n', offsets = [0];
+  for (const [index, object] of objects.entries()) { offsets.push(Buffer.byteLength(pdf)); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; }
+  const xref = Buffer.byteLength(pdf); pdf += `xref\n0 ${offsets.length}\n0000000000 65535 f \n` + offsets.slice(1).map(n => `${String(n).padStart(10, '0')} 00000 n \n`).join('') + `trailer\n<< /Size ${offsets.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf);
+}
 const tools = ids.map((id) => ({ id, name: id === 'merge' ? 'Merge PDF' : id === 'protect' ? 'Protect PDF' : id, description: `Process ${id} documents`, category: id === 'merge' ? 'Organize' : 'Convert', accept: '.pdf', multiple: id === 'merge', fields: id === 'protect' ? [{ name: 'password', label: 'PDF password', type: 'password', required: true }] : [] }));
 let failCatalog = false;
 let failJob = false;
@@ -24,8 +31,8 @@ const server = createServer(async (request, response) => {
     return response.end(failJob ? JSON.stringify({ error: 'Test processing error' }) : '%PDF-1.4\nresult');
   }
   const name = request.url === '/' ? 'index.html' : request.url?.replace('/assets/', '');
-  if (!['index.html', 'app.js', 'app.css', 'basecoat.css'].includes(name)) { response.writeHead(404); return response.end(); }
-  response.setHeader('Content-Type', name.endsWith('.css') ? 'text/css' : name.endsWith('.js') ? 'application/javascript' : 'text/html');
+  if (!['index.html', 'app.js', 'app.css', 'basecoat.css', 'workbench.js', 'workbench.css', 'pdfjs/pdf.mjs', 'pdfjs/pdf.worker.mjs'].includes(name)) { response.writeHead(404); return response.end(); }
+  response.setHeader('Content-Type', name.endsWith('.css') ? 'text/css' : /\.m?js$/.test(name) ? 'application/javascript' : 'text/html');
   response.end(await readFile(new URL(name, import.meta.url)));
 });
 await new Promise((done) => server.listen(0, '127.0.0.1', done));
@@ -65,6 +72,18 @@ try {
   await page.getByRole('button', { name: 'Organize', exact: true }).click();
   assert.equal(await page.locator('.tool-card').count(), 1);
   await page.getByRole('button', { name: 'All tools', exact: true }).click();
+  await page.locator('.tool-card').filter({ hasText: 'Process organize' }).click();
+  await page.locator('#file-input').setInputFiles({ name: 'two-pages.pdf', mimeType: 'application/pdf', buffer: samplePdf() });
+  await page.locator('.page-card').nth(1).waitFor();
+  await page.getByLabel('Move page 2 earlier').click();
+  assert.match(await page.locator('.page-card').first().textContent(), /Page 2/);
+  assert.equal(await page.locator('[name=pages]').inputValue(), '2,1');
+  await page.getByRole('button', { name: 'Close tool' }).click();
+  await page.locator('.tool-card').filter({ hasText: 'Process rotate' }).click();
+  await page.locator('#file-input').setInputFiles({ name: 'two-pages.pdf', mimeType: 'application/pdf', buffer: samplePdf() });
+  await page.getByLabel('Rotate page 2 90 degrees clockwise').click();
+  assert.equal(await page.locator('[name=rotations]').inputValue(), '{"1":0,"2":90}');
+  await page.getByRole('button', { name: 'Close tool' }).click();
   await page.setViewportSize({ width: 375, height: 812 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.getByRole('button', { name: 'Merge PDF' }).click();

@@ -124,6 +124,7 @@ function openTool(tool) {
   $('upload-hint').textContent = `Or drop ${tool.multiple ? 'files' : 'a file'} here${tool.accept ? ` (${Array.isArray(tool.accept) ? tool.accept.join(', ') : tool.accept})` : ''}`;
   renderOptions(tool);
   renderFiles();
+  window.dispatchEvent(new CustomEvent('workbench:open', { detail: tool }));
   $('workspace').showModal();
 }
 function fileAccepted(file) {
@@ -148,6 +149,7 @@ function addFiles(files) {
   clearResult();
   state.files = nextFiles;
   renderFiles();
+  window.dispatchEvent(new CustomEvent('workbench:files', { detail: state.files }));
 }
 function renderFiles() {
   $('file-list').replaceChildren(...state.files.map((file, index) => {
@@ -162,6 +164,7 @@ function renderFiles() {
       button.disabled = disabled;
       button.addEventListener('click', () => {
         handler(); clearResult(); renderFiles();
+        window.dispatchEvent(new CustomEvent('workbench:files', { detail: state.files }));
         const nextRow = $('file-list').children[Math.min(index, state.files.length - 1)];
         nextRow?.querySelector('button:not(:disabled)')?.focus();
       });
@@ -192,6 +195,7 @@ async function processFiles(event) {
   if (state.busy || !state.files.length || !$('tool-form').reportValidity()) return;
   showError('');
   clearResult();
+  window.dispatchEvent(new Event('workbench:submit'));
   const data = new FormData();
   for (const file of state.files) data.append('files', file, file.name);
   for (const input of $('option-fields').querySelectorAll('input, select, textarea')) {
@@ -234,7 +238,7 @@ $('search').addEventListener('input', renderCatalog);
 $('retry').addEventListener('click', loadCatalog);
 $('close-workspace').addEventListener('click', () => { if (!state.busy) $('workspace').close(); });
 $('workspace').addEventListener('cancel', (event) => { if (state.busy) event.preventDefault(); });
-$('workspace').addEventListener('close', () => { clearResult(); state.files = []; $('file-input').value = ''; $('option-fields').replaceChildren(); });
+$('workspace').addEventListener('close', () => { window.dispatchEvent(new Event('workbench:close')); clearResult(); state.files = []; $('file-input').value = ''; $('option-fields').replaceChildren(); });
 $('file-input').addEventListener('change', (event) => { addFiles(event.target.files); event.target.value = ''; });
 $('tool-form').addEventListener('submit', processFiles);
 for (const name of ['dragenter', 'dragover']) $('dropzone').addEventListener(name, (event) => { event.preventDefault(); if (!state.busy) $('dropzone').classList.add('dragging'); });
