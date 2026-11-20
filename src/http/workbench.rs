@@ -26,14 +26,14 @@ pub fn main() -> std::process::ExitCode {
         let app = Router::new()
             .route(
                 "/",
-                get(|| async { axum::response::Html(include_str!("../static/index.html")) }),
+                get(|| async { axum::response::Html(include_str!("../../static/index.html")) }),
             )
             .route(
                 "/assets/app.css",
                 get(|| async {
                     (
                         [(header::CONTENT_TYPE, "text/css")],
-                        include_str!("../static/app.css"),
+                        include_str!("../../static/app.css"),
                     )
                 }),
             )
@@ -42,7 +42,7 @@ pub fn main() -> std::process::ExitCode {
                 get(|| async {
                     (
                         [(header::CONTENT_TYPE, "text/css")],
-                        include_str!("../static/basecoat.css"),
+                        include_str!("../../static/basecoat.css"),
                     )
                 }),
             )
@@ -51,7 +51,7 @@ pub fn main() -> std::process::ExitCode {
                 get(|| async {
                     (
                         [(header::CONTENT_TYPE, "application/javascript")],
-                        include_str!("../static/app.js"),
+                        include_str!("../../static/app.js"),
                     )
                 }),
             )
@@ -60,7 +60,7 @@ pub fn main() -> std::process::ExitCode {
                 get(|| async {
                     (
                         [(header::CONTENT_TYPE, "application/javascript")],
-                        include_str!("../static/pdfjs/pdf.mjs"),
+                        include_str!("../../static/pdfjs/pdf.mjs"),
                     )
                 }),
             )
@@ -69,7 +69,7 @@ pub fn main() -> std::process::ExitCode {
                 get(|| async {
                     (
                         [(header::CONTENT_TYPE, "application/javascript")],
-                        include_str!("../static/pdfjs/pdf.worker.mjs"),
+                        include_str!("../../static/pdfjs/pdf.worker.mjs"),
                     )
                 }),
             )
@@ -78,7 +78,7 @@ pub fn main() -> std::process::ExitCode {
                 get(|| async {
                     (
                         [(header::CONTENT_TYPE, "application/javascript")],
-                        include_str!("../static/workbench.js"),
+                        include_str!("../../static/workbench.js"),
                     )
                 }),
             )
@@ -87,7 +87,7 @@ pub fn main() -> std::process::ExitCode {
                 get(|| async {
                     (
                         [(header::CONTENT_TYPE, "text/css")],
-                        include_str!("../static/workbench.css"),
+                        include_str!("../../static/workbench.css"),
                     )
                 }),
             )

@@ -15,11 +15,11 @@ use std::{
     process::{Command, ExitCode},
 };
 
-mod ai_tools;
-mod conversions;
-mod server;
-mod tools;
-mod web;
+mod features;
+mod http;
+
+use features::{ai as ai_tools, conversions, pdf as tools};
+use http::{webhook as server, workbench as web};
 
 const DPIS: [u32; 7] = [150, 120, 110, 100, 90, 80, 72];
 const MIN_Q: u8 = 30; // ponytail: fixed ladder, tune here if docs differ

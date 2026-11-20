@@ -1,2 +1,2 @@
-#[path = "../src/ai_tools.rs"]
+#[path = "../src/features/ai.rs"]
 mod ai_tools;
