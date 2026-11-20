@@ -15,4 +15,4 @@ PDF.js 4.10.38 is vendored with its Apache 2.0 license. PDF previews are local, 
 | Watermark and page numbers | Partial | Text and position preview for page 1; exact font metrics and rotation are approximate. |
 | Remaining tools | Existing form workflows | PDF inputs have local previews; tool-specific behavior depends on server. No claim of full visual parity. |
 
-Browser mock regression: `CHROMIUM_PATH='/Applications/Brave Browser.app/Contents/MacOS/Brave Browser' node static/ui-check.mjs` passed on 2026-11-20. Integrated server verification pending asset routes. Actual runtime model not exposed by environment; requested Terra medium not independently verified.
+Browser mock regression: `CHROMIUM_PATH='/Applications/Brave Browser.app/Contents/MacOS/Brave Browser' node static/ui-check.mjs` passed on 2026-11-20. Integrated Axum server and Brave: rendered a 12-page PDF, reordered page 2 earlier, submitted `2,1,3,4,5,6,7,8,9,10,11,12`, and downloaded `organize.pdf` without browser errors. Actual runtime model not exposed by environment; requested Terra medium not independently verified.
