@@ -7,9 +7,9 @@ No feature is labelled equivalent without a concrete acceptance criterion.
 | # | Tool | Current upgrade status | Evidence |
 |---|---|---|---|
 | 01 | Merge PDF | In progress | Native engine worker |
-| 02 | Split PDF | In progress | Native engine worker |
+| 02 | Split PDF | ZIP all/ranges real HTTP passed | 12 outputs and 2 range outputs, native tests |
 | 03 | Organize PDF | In progress | Native + visual workers |
-| 04 | Compress PDF | In progress | Coordinator |
+| 04 | Compress PDF | Lossless-fit real HTTP passed, quality parity open | Byte-identical output, OK/OVER_TARGET headers |
 | 05 | Images to PDF | In progress | Native engine worker |
 | 06 | Office to PDF | In progress | Conversion worker |
 | 07 | Crop PDF | In progress | Native + visual workers |
@@ -30,5 +30,5 @@ No feature is labelled equivalent without a concrete acceptance criterion.
 | 22 | AI summarize | In progress | AI worker, mock provider only |
 | 23 | Translate PDF | In progress | AI worker, mock provider only |
 
-Worker configuration requested: `9router:cx/gpt-6.1-terra`, effort `medium`.
+Worker configuration verified from all four session metadata files: `9router:cx/gpt-6.1-terra`, effort `medium`.
 Per-feature detailed reports live in `docs/progress/`.

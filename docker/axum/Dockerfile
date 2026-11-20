@@ -12,10 +12,24 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl ghostscript qpdf poppler-utils imagemagick tesseract-ocr \
     tesseract-ocr-eng tesseract-ocr-ind tesseract-ocr-vie ocrmypdf img2pdf mupdf-tools \
-    libreoffice-writer libreoffice-calc libreoffice-impress python3-weasyprint fonts-liberation fonts-dejavu-core \
+    libreoffice-writer libreoffice-calc libreoffice-impress weasyprint fonts-liberation fonts-dejavu-core fonts-noto-cjk default-jre-headless unzip gnupg \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1001 circleit && useradd --uid 1001 --gid circleit --create-home circleit \
     && install -d -o circleit -g circleit -m 700 /tmp/pdf520
+COPY docker/axum/verapdf-install.xml /tmp/verapdf-install.xml
+RUN set -eux; \
+    base=https://software.verapdf.org/releases/1.30/verapdf-greenfield-1.30.4-installer.zip; \
+    curl -fsSL "$base" -o /tmp/vera.zip; \
+    curl -fsSL "$base.asc" -o /tmp/vera.zip.asc; \
+    curl -fsSL https://software.verapdf.org/keys/KEY -o /tmp/vera.key; \
+    export GNUPGHOME=/tmp/vera-gpg; mkdir -m 700 "$GNUPGHOME"; \
+    gpg --batch --import /tmp/vera.key; \
+    gpg --batch --with-colons --fingerprint | grep -q '13DD102B4DD69354D12DE5A83184863278B17FE7'; \
+    gpg --batch --status-fd 1 --verify /tmp/vera.zip.asc /tmp/vera.zip | grep -q 'VALIDSIG 13DD102B4DD69354D12DE5A83184863278B17FE7'; \
+    unzip -q /tmp/vera.zip -d /tmp/vera; \
+    java -jar $(find /tmp/vera -name '*.jar' | head -1) /tmp/verapdf-install.xml; \
+    ln -s /opt/verapdf/verapdf /usr/local/bin/verapdf; \
+    rm -rf /tmp/vera /tmp/vera.zip /tmp/vera.zip.asc /tmp/vera.key /tmp/vera-gpg /tmp/verapdf-install.xml
 COPY --from=builder /app/target/release/pdf520 /usr/local/bin/pdf520
 COPY tests/conversions-smoke.sh /usr/local/share/pdf520/conversions-smoke.sh
 ENV TMPDIR=/tmp/pdf520 PORT=8080 BIND_ADDR=0.0.0.0:8080 HOME=/home/circleit
