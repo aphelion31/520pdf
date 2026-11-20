@@ -19,5 +19,6 @@
 .rectangle-inputs label { display: grid; gap: 4px; font-size: 13px; }
 .rectangle-inputs input { min-width: 0; width: 100%; padding: 8px; border: 1px solid var(--rule); border-radius: var(--radius); }
 .placement-label { position: absolute; line-height: 1; color: var(--accent); font-size: 12px; overflow-wrap: anywhere; }
+.placement-image { position: absolute; object-fit: fill; }
 .signature-canvas { display: block; max-width: 100%; border: 1px solid var(--rule); background: var(--surface); touch-action: none; }
 .signature-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }

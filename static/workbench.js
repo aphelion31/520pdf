@@ -96,39 +96,53 @@
     }
   }
   function addRectangleEditor() {
-    const page = pages[0]; if (!page) return;
-    if (page.originalRotation || page.view[0] !== 0 || page.view[1] !== 0) { host.append(node('p', 'preview-status', 'Visual rectangle editing is unavailable for rotated or offset pages. Use the coordinate fields below.')); return; }
     const panel = node('div', 'rectangle-editor');
-    panel.append(node('h4', '', tool.id === 'crop' ? 'Crop area on page 1' : 'Redaction area on page 1'), node('p', 'preview-status', 'Drag on the page to set the rectangle. Coordinates are in PDF points from the bottom left.'));
-    const stage = node('div', 'rectangle-stage'); const canvas = node('canvas'); canvas.width = page.canvas.width; canvas.height = page.canvas.height; canvas.getContext('2d').drawImage(page.canvas, 0, 0);
-    const box = node('div', 'rectangle-box'); stage.append(canvas, box); panel.append(stage);
-    const names = ['x', 'y', 'width', 'height'];
-    const values = Object.fromEntries(names.map(name => [name, field(name)]));
+    panel.append(node('h4', '', tool.id === 'crop' ? 'Crop area' : 'Redaction areas'), node('p', 'preview-status', 'Choose a page, then drag to select an area or enter coordinates in PDF points from the bottom left.'));
+    const pageLabel = node('label', '', 'Page '); const pageSelect = node('select'); pageSelect.setAttribute('aria-label', 'Rectangle page');
+    for (const p of pages) { const option = node('option', '', `Page ${p.number}`); option.value = p.number; pageSelect.append(option); }
+    pageLabel.append(pageSelect); panel.append(pageLabel);
+    const warning = node('p', 'preview-status'); panel.append(warning);
+    const stage = node('div', 'rectangle-stage'); const canvas = node('canvas'); const box = node('div', 'rectangle-box'); stage.append(canvas, box); panel.append(stage);
+    const names = ['x', 'y', 'width', 'height']; const values = Object.fromEntries(names.map(name => [name, field(name)]));
     if (tool.id === 'crop' && names.some(name => !values[name])) { panel.append(node('p', 'preview-status', 'Crop coordinate fields are unavailable.')); host.append(panel); return; }
     if (tool.id === 'redact') {
       const controls = node('div', 'rectangle-inputs');
       for (const name of names) { const label = node('label', '', name[0].toUpperCase() + name.slice(1)); const input = node('input'); input.type = 'number'; input.min = '0'; input.step = 'any'; input.value = '0'; input.dataset.rect = name; label.append(input); controls.append(label); values[name] = input; }
       panel.append(controls);
     }
-    const redraw = () => {
-      const x = +values.x.value || 0, y = +values.y.value || 0, w = +values.width.value || 0, h = +values.height.value || 0;
-      Object.assign(box.style, { left: `${x / page.width * 100}%`, top: `${(page.height - y - h) / page.height * 100}%`, width: `${w / page.width * 100}%`, height: `${h / page.height * 100}%` });
-      if (tool.id === 'redact') ensureField('rectangles').value = JSON.stringify(w > 0 && h > 0 ? [{ page: 1, x, y, width: w, height: h }] : []);
-    };
-    for (const input of Object.values(values)) input?.addEventListener('input', redraw);
-    let start;
-    const point = e => { const r = stage.getBoundingClientRect(); return { x: Math.max(0, Math.min(1, (e.clientX-r.left)/r.width)), y: Math.max(0, Math.min(1, (e.clientY-r.top)/r.height)) }; };
-    stage.addEventListener('pointerdown', e => { start = point(e); stage.setPointerCapture(e.pointerId); });
+    let page = pages[0], usable = true;
+    const redraw = () => { const x = +values.x.value || 0, y = +values.y.value || 0, w = +values.width.value || 0, h = +values.height.value || 0; Object.assign(box.style, { left: `${x / page.width * 100}%`, top: `${(page.height - y - h) / page.height * 100}%`, width: `${w / page.width * 100}%`, height: `${h / page.height * 100}%` }); };
+    const selectPage = () => { page = pages[+pageSelect.value - 1]; usable = !page.originalRotation && page.view[0] === 0 && page.view[1] === 0; canvas.width = page.canvas.width; canvas.height = page.canvas.height; canvas.getContext('2d').drawImage(page.canvas, 0, 0); stage.hidden = !usable; warning.textContent = usable ? '' : 'Visual rectangle editing is unavailable for rotated or offset pages. Use the coordinate fields below.'; if (tool.id === 'crop') ensureField('pages').value = page.number; redraw(); };
+    for (const input of Object.values(values)) input.addEventListener('input', redraw);
+    pageSelect.addEventListener('change', selectPage);
+    let start; const point = e => { const r = stage.getBoundingClientRect(); return { x: Math.max(0, Math.min(1, (e.clientX-r.left)/r.width)), y: Math.max(0, Math.min(1, (e.clientY-r.top)/r.height)) }; };
+    stage.addEventListener('pointerdown', e => { if (!usable) return; start = point(e); stage.setPointerCapture(e.pointerId); });
     stage.addEventListener('pointermove', e => { if (!start) return; const end = point(e); values.x.value = Math.round(Math.min(start.x,end.x)*page.width); values.y.value = Math.round((1-Math.max(start.y,end.y))*page.height); values.width.value = Math.round(Math.abs(start.x-end.x)*page.width); values.height.value = Math.round(Math.abs(start.y-end.y)*page.height); redraw(); });
     stage.addEventListener('pointerup', () => { start = null; }); stage.addEventListener('pointercancel', () => { start = null; });
-    host.append(panel); redraw();
+    if (tool.id === 'redact') {
+      const list = node('ol', 'rectangle-list'); list.setAttribute('aria-label', 'Redaction rectangles'); const message = node('p', 'preview-status'); message.setAttribute('role', 'status');
+      const input = ensureField('rectangles', '[]');
+      const read = () => { try { const result = JSON.parse(input.value); if (!Array.isArray(result)) throw Error(); return result; } catch { message.textContent = 'Correct the rectangles JSON before adding or removing an area.'; return null; } };
+      const render = () => { const rectangles = read(); if (!rectangles) return; message.textContent = ''; list.replaceChildren(...rectangles.map((r, i) => { const row = node('li', '', `Page ${r.page}: ${r.x}, ${r.y}, ${r.width} × ${r.height} `); const remove = button('Remove', () => { const current = read(); if (!current) return; current.splice(i, 1); input.value = JSON.stringify(current); render(); }); remove.setAttribute('aria-label', `Remove rectangle ${i + 1}`); row.append(remove); return row; })); };
+      const add = button('Add redaction area', () => { const rectangles = read(); if (!rectangles) return; const area = { page: page.number, ...Object.fromEntries(names.map(name => [name, Number(values[name].value)])) }; if (!Number.isFinite(area.x) || !Number.isFinite(area.y) || !Number.isFinite(area.width) || !Number.isFinite(area.height) || area.x < 0 || area.y < 0 || area.width <= 0 || area.height <= 0 || area.x + area.width > page.width || area.y + area.height > page.height) { message.textContent = 'Enter a positive rectangle within the selected page.'; return; } rectangles.push(area); input.value = JSON.stringify(rectangles); render(); });
+      input.addEventListener('input', render); panel.append(add, message, list); render();
+    }
+    host.append(panel); selectPage();
   }
   function addPlacementPreview() {
     const page = pages[0]; if (!page) return;
     const panel = node('div', 'placement-preview'); panel.append(node('h4', '', 'Placement preview on page 1'));
     const stage = node('div', 'placement-stage'); const canvas = node('canvas'); canvas.width = page.canvas.width; canvas.height = page.canvas.height; canvas.getContext('2d').drawImage(page.canvas, 0, 0);
-    const overlay = node('span', 'placement-label'); stage.append(canvas, overlay); panel.append(stage); host.append(panel);
-    const update = () => { overlay.textContent = field('text')?.value || (tool.id === 'page-numbers' ? (field('format')?.value || '{n}').replace('{n}', field('start')?.value || '1').replace('{total}', String(pages.length)) : 'Preview'); const position = field('position')?.value || 'left'; const x = field('x')?.value ? +field('x').value : position === 'center' ? page.width/2 : position === 'right' ? page.width-36 : 36; const y = field('y')?.value ? +field('y').value : tool.id === 'page-numbers' ? 24 : page.height/2; overlay.style.left = `${Math.max(0,Math.min(100,x/page.width*100))}%`; overlay.style.bottom = `${Math.max(0,Math.min(100,y/page.height*100))}%`; overlay.style.opacity = field('opacity')?.value || '1'; overlay.style.transform = `rotate(${-Number(field('rotation')?.value || 0)}deg)`; };
+    const overlay = node('span', 'placement-label'); const image = node('img', 'placement-image'); image.alt = 'Signature placement preview'; image.hidden = true; stage.append(canvas, overlay, image); panel.append(stage); host.append(panel);
+    if (tool.id === 'sign') {
+      const controls = node('div', 'rectangle-inputs');
+      for (const [name, label, value] of [['x','Signature left (points)','36'], ['y','Signature bottom (points)','36'], ['width','Signature width (points)','150'], ['height','Signature height (points)','50']]) {
+        if (field(name)) continue;
+        const wrapper = node('label', '', label); const input = node('input'); input.type = 'number'; input.name = name; input.value = value; input.min = name === 'width' || name === 'height' ? '1' : '0'; input.step = 'any'; wrapper.append(input); controls.append(wrapper);
+      }
+      options.append(controls);
+    }
+    const update = () => { const signature = tool.id === 'sign' && field('image_base64')?.value; image.hidden = !signature; overlay.hidden = Boolean(signature); if (signature) { image.src = `data:image/png;base64,${signature}`; Object.assign(image.style, { left: `${(+field('x').value / page.width)*100}%`, bottom: `${(+field('y').value / page.height)*100}%`, width: `${(+field('width').value / page.width)*100}%`, height: `${(+field('height').value / page.height)*100}%` }); } overlay.textContent = field('text')?.value || (tool.id === 'page-numbers' ? (field('format')?.value || '{n}').replace('{n}', field('start')?.value || '1').replace('{total}', String(pages.length)) : 'Preview'); const position = field('position')?.value || 'left'; const x = field('x')?.value ? +field('x').value : position === 'center' ? page.width/2 : position === 'right' ? page.width-36 : 36; const y = field('y')?.value ? +field('y').value : tool.id === 'page-numbers' ? 24 : page.height/2; overlay.style.left = `${Math.max(0,Math.min(100,x/page.width*100))}%`; overlay.style.bottom = `${Math.max(0,Math.min(100,y/page.height*100))}%`; overlay.style.opacity = field('opacity')?.value || '1'; overlay.style.transform = `rotate(${-Number(field('rotation')?.value || 0)}deg)`; };
     options.addEventListener('input', update, { signal: placementAbort.signal }); options.addEventListener('change', update, { signal: placementAbort.signal }); update();
   }
   function addSignatureEditor() {
@@ -136,8 +150,8 @@
     const canvas = node('canvas', 'signature-canvas'); canvas.width = 360; canvas.height = 120; canvas.setAttribute('aria-label', 'Signature drawing area. Alternatively upload an image or enter signature text.');
     const context = canvas.getContext('2d'); context.strokeStyle = '#242427'; context.lineWidth = 2; context.lineCap = 'round';
     const actions = node('div', 'signature-actions'); const uploadLabel = node('label', '', 'Upload signature image'); const upload = node('input'); upload.type = 'file'; upload.accept = 'image/png,image/jpeg'; uploadLabel.append(upload);
-    const save = () => { ensureField('image_base64').value = canvas.toDataURL('image/png').split(',')[1]; const text = field('text'); if (text) text.required = false; };
-    const clear = button('Clear signature', () => { context.clearRect(0, 0, canvas.width, canvas.height); field('image_base64')?.remove(); upload.value = ''; upload.setCustomValidity(''); });
+    const save = () => { ensureField('image_base64').value = canvas.toDataURL('image/png').split(',')[1]; const text = field('text'); if (text) text.required = false; options.dispatchEvent(new Event('input')); };
+    const clear = button('Clear signature', () => { context.clearRect(0, 0, canvas.width, canvas.height); field('image_base64')?.remove(); upload.value = ''; upload.setCustomValidity(''); options.dispatchEvent(new Event('input')); });
     let drawing = false; const point = e => { const r = canvas.getBoundingClientRect(); return [(e.clientX-r.left)*canvas.width/r.width, (e.clientY-r.top)*canvas.height/r.height]; };
     canvas.addEventListener('pointerdown', e => { drawing = true; canvas.setPointerCapture(e.pointerId); context.beginPath(); context.moveTo(...point(e)); });
     canvas.addEventListener('pointermove', e => { if (!drawing) return; context.lineTo(...point(e)); context.stroke(); });

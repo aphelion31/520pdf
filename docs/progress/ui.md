@@ -9,10 +9,10 @@ PDF.js 4.10.38 is vendored with its Apache 2.0 license. PDF previews are local, 
 | Organize | Implemented | Drag reorder, keyboard-accessible earlier/later buttons, include checkboxes; sends pages string. |
 | Split | Implemented | Include checkboxes and pages string; no automatic multi-file output. |
 | Rotate | Implemented | Per-page rotation sends rotations JSON. |
-| Crop | Implemented | Page 1 drag rectangle and numeric PDF point fields. Applied per backend page selection. |
-| Redact | Partial | One page 1 rectangle with pointer and numeric controls. Existing JSON field allows additional rectangles. Verify output independently before sharing sensitive documents. |
-| Sign | Partial | Draw or upload PNG/JPEG to local canvas and send image_base64; text remains available. Placement preview currently represents text, not signature image. |
+| Crop | Implemented | Page selector, drag rectangle and numeric PDF point fields. Selected page sent as `pages`. |
+| Redact | Implemented, runtime test blocked | Multiple areas on selectable pages, with add/remove and numeric alternatives. Local integration returned missing `pdftoppm`; independently verify redacted output before sharing sensitive documents. |
+| Sign | Implemented | Draw or upload PNG/JPEG, preview actual image on page 1, set numeric position and size, send `image_base64`. |
 | Watermark and page numbers | Partial | Text and position preview for page 1; exact font metrics and rotation are approximate. |
 | Remaining tools | Existing form workflows | PDF inputs have local previews; tool-specific behavior depends on server. No claim of full visual parity. |
 
-Browser mock regression: `CHROMIUM_PATH='/Applications/Brave Browser.app/Contents/MacOS/Brave Browser' node static/ui-check.mjs` passed on 2026-11-20. Integrated Axum server and Brave: rendered a 12-page PDF, reordered page 2 earlier, submitted `2,1,3,4,5,6,7,8,9,10,11,12`, and downloaded `organize.pdf` without browser errors. Actual runtime model not exposed by environment; requested Terra medium not independently verified.
+Integrated follow-up: Brave selected crop page 2 and downloaded `crop.pdf`; redaction UI submitted two page-specific rectangles but backend returned missing `pdftoppm`; drawn signature placement produced `sign.pdf`. Browser mock regression also tests rectangle removal and signature position. No browser errors.

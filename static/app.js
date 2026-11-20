@@ -87,6 +87,7 @@ function renderOptions(tool) {
     input.name = field.name;
     label.htmlFor = input.id;
     if (input.tagName === 'INPUT') input.type = ['number', 'password', 'checkbox', 'file', 'email', 'url', 'range'].includes(type) ? type : 'text';
+    if (type === 'number' && field.step === undefined) input.step = 'any';
     if (type === 'select') {
       for (const option of field.options || []) {
         const node = element('option', '', typeof option === 'object' ? option.label : option);
