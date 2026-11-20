@@ -1,4 +1,5 @@
 //! Local PDF operations. Coordinates are PDF points, measured from bottom-left.
+use base64::Engine as _;
 use lopdf::{
     Dictionary, Document, Object, ObjectId, Stream,
     content::{Content, Operation},
@@ -25,7 +26,7 @@ pub fn run(
         return Err("At most 100 inputs are supported".into());
     }
     let mut doc = if tool == "image-to-pdf" {
-        images(inputs)?
+        images(inputs, options)?
     } else if tool == "merge" {
         if inputs.len() < 2 {
             return Err("Merge requires at least two PDFs".into());
@@ -37,6 +38,34 @@ pub fn run(
         }
         load(&inputs[0])?
     };
+    if tool == "forms" && options.get("action").is_some_and(|v| v == "discover") {
+        let mut fields = Vec::new();
+        for (&id, object) in &doc.objects {
+            let Ok(dict) = object.as_dict() else { continue };
+            let Ok(name) = dict.get(b"T").and_then(Object::as_str) else {
+                continue;
+            };
+            let kind = inherited(&doc, id, b"FT")?.and_then(|v| {
+                v.as_name()
+                    .ok()
+                    .map(|v| String::from_utf8_lossy(v).into_owned())
+            });
+            if let Some(kind) = kind {
+                fields.push(serde_json::json!({"name":String::from_utf8_lossy(name),"type":kind}));
+            }
+        }
+        fields.sort_by_key(|f| f["name"].as_str().unwrap_or("").to_owned());
+        let output = dir.join("forms.json");
+        if inputs.iter().any(|i| {
+            i == &output
+                || (i.canonicalize().ok().is_some()
+                    && i.canonicalize().ok() == output.canonicalize().ok())
+        }) {
+            return Err("Output would overwrite an input".into());
+        }
+        std::fs::write(&output, serde_json::to_vec(&fields).map_err(err)?).map_err(err)?;
+        return Ok((output, "application/json".into()));
+    }
     let pages = doc.get_pages();
     if pages.is_empty() {
         return Err("PDF has no pages".into());
@@ -56,7 +85,22 @@ pub fn run(
             if angle % 90 != 0 {
                 return Err("angle must be a multiple of 90".into());
             }
+            let rotations: HashMap<String, i64> = match options.get("rotations") {
+                Some(v) => serde_json::from_str(v)
+                    .map_err(|_| "rotations must be a JSON object mapping pages to angles")?,
+                None => HashMap::new(),
+            };
+            for key in rotations.keys() {
+                let n: u32 = key.parse().map_err(|_| "Invalid rotation page")?;
+                if !selected.contains(&n) {
+                    return Err("Rotation page must be selected".into());
+                }
+            }
             for n in selected {
+                let page_angle = rotations.get(&n.to_string()).copied().unwrap_or(angle);
+                if page_angle % 90 != 0 {
+                    return Err("rotation angles must be multiples of 90".into());
+                }
                 let id = pages[&n];
                 let old = inherited(&doc, id, b"Rotate")?
                     .unwrap_or(0.into())
@@ -64,7 +108,7 @@ pub fn run(
                     .map_err(err)?;
                 doc.get_dictionary_mut(id).map_err(err)?.set(
                     "Rotate",
-                    (old.rem_euclid(360) + angle.rem_euclid(360)).rem_euclid(360),
+                    (old.rem_euclid(360) + page_angle.rem_euclid(360)).rem_euclid(360),
                 );
             }
         }
@@ -89,44 +133,80 @@ pub fn run(
             }
         }
         "watermark" | "sign" | "page-numbers" => {
-            let text = options.get("text").map(String::as_str).unwrap_or("");
-            if tool != "page-numbers" && text.trim().is_empty() {
-                return Err("text is required".into());
-            }
-            let size = number(
-                options,
-                "font_size",
-                if tool == "page-numbers" { 12. } else { 32. },
-            )?;
-            if !(1. ..=300.).contains(&size) {
-                return Err("font_size must be between 1 and 300".into());
-            }
-            let start = integer(options, "start", 1)?;
-            if start < 0 || start > 1_000_000 {
-                return Err("start must be between 0 and 1000000".into());
-            }
-            for (index, n) in selected.into_iter().enumerate() {
-                let id = pages[&n];
-                let bounds = page_box(&doc, id)?;
-                let x = number(options, "x", bounds[0] + 36.)?;
-                let y = number(
-                    options,
-                    "y",
-                    if tool == "page-numbers" {
-                        bounds[1] + 24.
-                    } else {
-                        (bounds[1] + bounds[3]) / 2.
-                    },
-                )?;
-                if x < bounds[0] || x > bounds[2] || y < bounds[1] || y > bounds[3] {
-                    return Err("Text position is outside the page".into());
+            if tool == "sign" && options.contains_key("image_base64") {
+                for n in selected {
+                    image_signature(&mut doc, pages[&n], options)?;
                 }
-                let label = if tool == "page-numbers" {
-                    (start + index as i64).to_string()
-                } else {
-                    text.to_string()
-                };
-                overlay(&mut doc, id, &label, x, y, size, tool == "watermark")?;
+            } else {
+                let text = options.get("text").map(String::as_str).unwrap_or("");
+                if tool != "page-numbers" && text.trim().is_empty() {
+                    return Err("text is required".into());
+                }
+                let size = number(
+                    options,
+                    "font_size",
+                    if tool == "page-numbers" { 12. } else { 32. },
+                )?;
+                if !(1. ..=300.).contains(&size) {
+                    return Err("font_size must be between 1 and 300".into());
+                }
+                let start = integer(options, "start", 1)?;
+                if start < 0 || start > 1_000_000 {
+                    return Err("start must be between 0 and 1000000".into());
+                }
+                for (index, n) in selected.into_iter().enumerate() {
+                    let id = pages[&n];
+                    let bounds = page_box(&doc, id)?;
+                    let position = options
+                        .get("position")
+                        .map(String::as_str)
+                        .unwrap_or("left");
+                    let default_x = match position {
+                        "left" => bounds[0] + 36.,
+                        "center" => (bounds[0] + bounds[2]) / 2.,
+                        "right" => bounds[2] - 36.,
+                        _ => return Err("position must be left, center or right".into()),
+                    };
+                    let x = number(options, "x", default_x)?;
+                    let y = number(
+                        options,
+                        "y",
+                        if tool == "page-numbers" {
+                            bounds[1] + 24.
+                        } else {
+                            (bounds[1] + bounds[3]) / 2.
+                        },
+                    )?;
+                    if x < bounds[0] || x > bounds[2] || y < bounds[1] || y > bounds[3] {
+                        return Err("Text position is outside the page".into());
+                    }
+                    let label = if tool == "page-numbers" {
+                        options
+                            .get("format")
+                            .map(String::as_str)
+                            .unwrap_or("{n}")
+                            .replace("{n}", &(start + index as i64).to_string())
+                            .replace("{total}", &pages.len().to_string())
+                    } else {
+                        text.to_string()
+                    };
+                    let rotation = number(options, "rotation", 0.)?;
+                    let opacity = number(options, "opacity", 1.)?;
+                    if !(0. ..=1.).contains(&opacity) {
+                        return Err("opacity must be between 0 and 1".into());
+                    }
+                    overlay(
+                        &mut doc,
+                        id,
+                        &label,
+                        x,
+                        y,
+                        size,
+                        tool == "watermark",
+                        rotation,
+                        opacity,
+                    )?;
+                }
             }
         }
         "forms" => fill_forms(&mut doc, options)?,
@@ -351,12 +431,26 @@ fn overlay(
     y: f32,
     size: f32,
     light: bool,
+    rotation: f32,
+    opacity: f32,
 ) -> Result<()> {
     let font =
         doc.add_object(dictionary! {"Type"=>"Font","Subtype"=>"Type1","BaseFont"=>"Helvetica"});
     // A Form XObject isolates our resource names from the original PDF's font names.
     let bounds = page_box(doc, id)?;
-    let form=doc.add_object(Stream::new(dictionary! {"Type"=>"XObject","Subtype"=>"Form","BBox"=>bounds.iter().copied().map(Object::Real).collect::<Vec<_>>(),"Resources"=>dictionary!{"Font"=>dictionary!{"ToolFont"=>font}}},text_content(text,x,y,size,if light {0.65} else {0.})?));
+    let radians = rotation.to_radians();
+    let (sin, cos) = radians.sin_cos();
+    let mut content =
+        format!("q /ToolOpacity gs {cos} {sin} {} {cos} {x} {y} cm\n", -sin).into_bytes();
+    content.extend(text_content(
+        text,
+        0.,
+        0.,
+        size,
+        if light { 0.65 } else { 0. },
+    )?);
+    content.extend_from_slice(b"\nQ");
+    let form=doc.add_object(Stream::new(dictionary! {"Type"=>"XObject","Subtype"=>"Form","BBox"=>bounds.iter().copied().map(Object::Real).collect::<Vec<_>>(),"Resources"=>dictionary!{"Font"=>dictionary!{"ToolFont"=>font},"ExtGState"=>dictionary!{"ToolOpacity"=>dictionary!{"Type"=>"ExtGState","ca"=>opacity,"CA"=>opacity}}}},content));
     let mut resources = inherited(doc, id, b"Resources")?
         .unwrap_or(Object::Dictionary(Dictionary::new()))
         .as_dict()
@@ -394,6 +488,85 @@ fn overlay(
         .set("Contents", contents);
     Ok(())
 }
+fn image_signature(doc: &mut Document, id: ObjectId, options: &Options) -> Result<()> {
+    let encoded = options
+        .get("image_base64")
+        .ok_or("Missing signature image")?;
+    if encoded.len() > 8_000_000 {
+        return Err("Signature image exceeds size limit".into());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|_| "Invalid signature image base64")?;
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(err)?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(4000);
+    limits.max_image_height = Some(4000);
+    limits.max_alloc = Some(64 * 1024 * 1024);
+    reader.limits(limits);
+    let rgba = reader.decode().map_err(err)?.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    if w == 0 || h == 0 || u64::from(w) * u64::from(h) > 8_000_000 {
+        return Err("Invalid signature image dimensions".into());
+    }
+    let bounds = page_box(doc, id)?;
+    let x = number(options, "x", bounds[0] + 36.)?;
+    let y = number(options, "y", bounds[1] + 36.)?;
+    let width = number(options, "width", 150.)?;
+    let height = number(options, "height", width * h as f32 / w as f32)?;
+    if width <= 0.
+        || height <= 0.
+        || x < bounds[0]
+        || y < bounds[1]
+        || x + width > bounds[2]
+        || y + height > bounds[3]
+    {
+        return Err("Signature rectangle exceeds page MediaBox".into());
+    }
+    let mut rgb = Vec::with_capacity(w as usize * h as usize * 3);
+    let mut alpha = Vec::with_capacity(w as usize * h as usize);
+    for p in rgba.pixels() {
+        rgb.extend_from_slice(&p.0[..3]);
+        alpha.push(p.0[3]);
+    }
+    let mask = doc.add_object(Stream::new(dictionary!{"Type"=>"XObject","Subtype"=>"Image","Width"=>w as i64,"Height"=>h as i64,"ColorSpace"=>"DeviceGray","BitsPerComponent"=>8}, alpha));
+    let image = doc.add_object(Stream::new(dictionary!{"Type"=>"XObject","Subtype"=>"Image","Width"=>w as i64,"Height"=>h as i64,"ColorSpace"=>"DeviceRGB","BitsPerComponent"=>8,"SMask"=>mask}, rgb));
+    let mut resources = inherited(doc, id, b"Resources")?
+        .unwrap_or(Object::Dictionary(Dictionary::new()))
+        .as_dict()
+        .map_err(err)?
+        .clone();
+    let mut objects = match resources.get(b"XObject") {
+        Ok(o) => doc
+            .dereference(o)
+            .map_err(err)?
+            .1
+            .as_dict()
+            .map_err(err)?
+            .clone(),
+        Err(_) => Dictionary::new(),
+    };
+    let name = format!("Signature{}", image.0);
+    objects.set(name.as_bytes(), image);
+    resources.set("XObject", objects);
+    doc.get_dictionary_mut(id)
+        .map_err(err)?
+        .set("Resources", resources);
+    let prefix = doc.add_object(Stream::new(dictionary! {}, b"q\n".to_vec()));
+    let mut contents = vec![Object::Reference(prefix)];
+    contents.extend(doc.get_page_contents(id).into_iter().map(Object::Reference));
+    let suffix = doc.add_object(Stream::new(
+        dictionary! {},
+        format!("\nQ\nq {width} 0 0 {height} {x} {y} cm /{name} Do Q\n").into_bytes(),
+    ));
+    contents.push(suffix.into());
+    doc.get_dictionary_mut(id)
+        .map_err(err)?
+        .set("Contents", contents);
+    Ok(())
+}
 fn fill_forms(doc: &mut Document, options: &Options) -> Result<()> {
     let requested: HashMap<_, _> = options
         .iter()
@@ -416,12 +589,67 @@ fn fill_forms(doc: &mut Document, options: &Options) -> Result<()> {
         let Some(value) = requested.get(&name) else {
             continue;
         };
-        if inherited(doc, id, b"FT")?
-            .and_then(|v| v.as_name().ok().map(|v| v.to_vec()))
-            .as_deref()
-            != Some(b"Tx")
-        {
-            return Err(format!("Field {name} is not a supported text field"));
+        let kind = inherited(doc, id, b"FT")?.and_then(|v| v.as_name().ok().map(|v| v.to_vec()));
+        if kind.as_deref() == Some(b"Btn") {
+            let flags = inherited(doc, id, b"Ff")?
+                .and_then(|v| v.as_i64().ok())
+                .unwrap_or(0);
+            if flags & (1 | 32768 | 65536) != 0 {
+                return Err(format!("Field {name} is read-only or not a checkbox"));
+            }
+            let widgets = match doc.get_dictionary(id).map_err(err)?.get(b"Kids") {
+                Ok(kids) => kids
+                    .as_array()
+                    .map_err(err)?
+                    .iter()
+                    .map(|o| o.as_reference().map_err(err))
+                    .collect::<Result<Vec<_>>>()?,
+                Err(_) => vec![id],
+            };
+            let mut state = None;
+            for widget in &widgets {
+                let d = doc.get_dictionary(*widget).map_err(err)?;
+                let ap = d
+                    .get(b"AP")
+                    .map_err(|_| format!("Checkbox {name} has no appearance"))?;
+                let ap = doc.dereference(ap).map_err(err)?.1.as_dict().map_err(err)?;
+                let normal = doc
+                    .dereference(ap.get(b"N").map_err(err)?)
+                    .map_err(err)?
+                    .1
+                    .as_dict()
+                    .map_err(err)?;
+                let on = normal
+                    .iter()
+                    .find(|(k, _)| k.as_slice() != b"Off")
+                    .map(|(k, _)| k.clone())
+                    .ok_or("Checkbox has no on appearance")?;
+                let chosen = match value.as_str() {
+                    "true" | "1" | "on" => on,
+                    "false" | "0" | "off" => b"Off".to_vec(),
+                    _ => return Err(format!("Checkbox {name} requires true or false")),
+                };
+                if state.as_ref().is_some_and(|s| s != &chosen) {
+                    return Err("Checkbox widgets have inconsistent states".into());
+                }
+                state = Some(chosen);
+            }
+            let state = state.ok_or("Checkbox has no widgets")?;
+            for widget in widgets {
+                doc.get_dictionary_mut(widget)
+                    .map_err(err)?
+                    .set("AS", Object::Name(state.clone()));
+            }
+            doc.get_dictionary_mut(id)
+                .map_err(err)?
+                .set("V", Object::Name(state));
+            found.insert(name);
+            continue;
+        }
+        if kind.as_deref() != Some(b"Tx") {
+            return Err(format!(
+                "Field {name} is not a supported text or checkbox field"
+            ));
         }
         let flags = inherited(doc, id, b"Ff")?
             .and_then(|v| v.as_i64().ok())
@@ -513,7 +741,7 @@ fn field_appearance(doc: &mut Document, id: ObjectId, value: &str) -> Result<()>
         .set("AP", dictionary! {"N"=>ap});
     Ok(())
 }
-fn images(inputs: &[PathBuf]) -> Result<Document> {
+fn images(inputs: &[PathBuf], options: &Options) -> Result<Document> {
     let mut doc = Document::with_version("1.7");
     let parent = doc.new_object_id();
     let mut pages = Vec::new();
@@ -547,14 +775,51 @@ fn images(inputs: &[PathBuf]) -> Result<Document> {
             }
         }
         let image=doc.add_object(Stream::new(dictionary!{"Type"=>"XObject","Subtype"=>"Image","Width"=>w as i64,"Height"=>h as i64,"ColorSpace"=>"DeviceRGB","BitsPerComponent"=>8},rgb));
-        let scale = (595. / w as f32).min(842. / h as f32);
-        let pw = w as f32 * scale;
-        let ph = h as f32 * scale;
+        let margin = number(options, "margin", 0.)?;
+        let (mut page_w, mut page_h) = match options
+            .get("page_size")
+            .map(String::as_str)
+            .unwrap_or("fit")
+        {
+            "fit" => (0., 0.),
+            "a4" => (595., 842.),
+            "letter" => (612., 792.),
+            _ => return Err("page_size must be fit, a4 or letter".into()),
+        };
+        let landscape = match options
+            .get("orientation")
+            .map(String::as_str)
+            .unwrap_or("portrait")
+        {
+            "portrait" => false,
+            "landscape" => true,
+            _ => return Err("orientation must be portrait or landscape".into()),
+        };
+        if margin < 0. {
+            return Err("margin must be nonnegative".into());
+        }
+        if landscape {
+            std::mem::swap(&mut page_w, &mut page_h);
+        }
+        let (pw, ph, x, y) = if page_w == 0. {
+            let scale = (595. / w as f32).min(842. / h as f32);
+            let (pw, ph) = (w as f32 * scale, h as f32 * scale);
+            page_w = pw + 2. * margin;
+            page_h = ph + 2. * margin;
+            (pw, ph, margin, margin)
+        } else {
+            if 2. * margin >= page_w.min(page_h) {
+                return Err("margin leaves no room for image".into());
+            }
+            let scale = ((page_w - 2. * margin) / w as f32).min((page_h - 2. * margin) / h as f32);
+            let (pw, ph) = (w as f32 * scale, h as f32 * scale);
+            (pw, ph, (page_w - pw) / 2., (page_h - ph) / 2.)
+        };
         let content = doc.add_object(Stream::new(
             dictionary! {},
-            format!("q {pw} 0 0 {ph} 0 0 cm /Image Do Q").into_bytes(),
+            format!("q {pw} 0 0 {ph} {x} {y} cm /Image Do Q").into_bytes(),
         ));
-        let page=doc.add_object(dictionary!{"Type"=>"Page","Parent"=>parent,"MediaBox"=>vec![0.into(),0.into(),pw.into(),ph.into()],"Resources"=>dictionary!{"XObject"=>dictionary!{"Image"=>image}},"Contents"=>content});
+        let page=doc.add_object(dictionary!{"Type"=>"Page","Parent"=>parent,"MediaBox"=>vec![0.into(),0.into(),page_w.into(),page_h.into()],"Resources"=>dictionary!{"XObject"=>dictionary!{"Image"=>image}},"Contents"=>content});
         pages.push(page.into());
     }
     doc.objects.insert(
@@ -613,7 +878,18 @@ mod tests {
     fn overlays_are_real_streams() {
         let mut d = fixture();
         let id = d.get_pages()[&1];
-        overlay(&mut d, id, "Visible signature", 20., 30., 14., false).unwrap();
+        overlay(
+            &mut d,
+            id,
+            "Visible signature",
+            20.,
+            30.,
+            14.,
+            false,
+            0.,
+            1.,
+        )
+        .unwrap();
         let bytes = d.get_page_content(id);
         assert!(String::from_utf8_lossy(&bytes).contains("Do"));
         assert!(
@@ -622,7 +898,7 @@ mod tests {
                 .filter_map(|o| o.as_stream().ok())
                 .any(|s| String::from_utf8_lossy(&s.content).contains("Visible signature"))
         );
-        assert!(overlay(&mut d, id, "中文", 0., 0., 12., false).is_err());
+        assert!(overlay(&mut d, id, "中文", 0., 0., 12., false, 0., 1.).is_err());
     }
     #[test]
     fn operations_roundtrip_real_files() {
@@ -774,6 +1050,137 @@ mod tests {
                 &HashMap::from([("field.unknown".into(), "x".into())])
             )
             .is_err()
+        );
+    }
+    #[test]
+    fn advanced_native_options_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("input.pdf");
+        fixture().save(&input).unwrap();
+        let opts = Options::from([("rotations".into(), r#"{"1":180,"2":270}"#.into())]);
+        let (path, _) = run("rotate", &[input.clone()], &opts, dir.path()).unwrap();
+        let d = load(&path).unwrap();
+        let pages = d.get_pages();
+        assert_eq!(
+            inherited(&d, pages[&1], b"Rotate")
+                .unwrap()
+                .unwrap()
+                .as_i64()
+                .unwrap(),
+            180
+        );
+        assert_eq!(
+            inherited(&d, pages[&2], b"Rotate")
+                .unwrap()
+                .unwrap()
+                .as_i64()
+                .unwrap(),
+            270
+        );
+        let opts = Options::from([
+            ("text".into(), "TEST".into()),
+            ("pages".into(), "2".into()),
+            ("rotation".into(), "45".into()),
+            ("opacity".into(), "0.3".into()),
+        ]);
+        let (path, _) = run("watermark", &[input.clone()], &opts, dir.path()).unwrap();
+        let d = load(&path).unwrap();
+        assert!(
+            d.objects
+                .values()
+                .any(
+                    |o| o.as_stream().ok().is_some_and(|s| String::from_utf8_lossy(
+                        &s.decompressed_content()
+                            .unwrap_or_else(|_| s.content.clone())
+                    )
+                    .contains("ToolOpacity"))
+                )
+        );
+        let opts = Options::from([
+            ("format".into(), "Page {n} of {total}".into()),
+            ("start".into(), "2".into()),
+        ]);
+        let (path, _) = run("page-numbers", &[input.clone()], &opts, dir.path()).unwrap();
+        let d = load(&path).unwrap();
+        assert!(
+            d.objects
+                .values()
+                .any(
+                    |o| o.as_stream().ok().is_some_and(|s| String::from_utf8_lossy(
+                        &s.decompressed_content()
+                            .unwrap_or_else(|_| s.content.clone())
+                    )
+                    .contains("Page 2 of 3"))
+                )
+        );
+        let image_path = dir.path().join("signature.png");
+        image::RgbaImage::from_pixel(10, 5, image::Rgba([0, 0, 0, 128]))
+            .save(&image_path)
+            .unwrap();
+        let opts = Options::from([
+            (
+                "image_base64".into(),
+                base64::engine::general_purpose::STANDARD
+                    .encode(std::fs::read(&image_path).unwrap()),
+            ),
+            ("pages".into(), "1".into()),
+        ]);
+        let (path, _) = run("sign", &[input], &opts, dir.path()).unwrap();
+        let d = load(&path).unwrap();
+        assert!(
+            d.objects
+                .values()
+                .any(|o| o.as_stream().ok().is_some_and(|s| s.dict.has(b"SMask")))
+        );
+        let opts = Options::from([
+            ("page_size".into(), "a4".into()),
+            ("orientation".into(), "landscape".into()),
+            ("margin".into(), "20".into()),
+        ]);
+        let (path, _) = run("image-to-pdf", &[image_path], &opts, dir.path()).unwrap();
+        let d = load(&path).unwrap();
+        assert_eq!(
+            page_box(&d, d.get_pages()[&1]).unwrap(),
+            [0., 0., 842., 595.]
+        );
+    }
+    #[test]
+    fn checkbox_and_discovery_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("form.pdf");
+        let mut d = fixture();
+        let widget = d.add_object(dictionary!{"FT"=>"Btn","T"=>Object::string_literal("agree"),"AP"=>dictionary!{"N"=>dictionary!{"Off"=>dictionary!{},"Yes"=>dictionary!{}}},"AS"=>"Off"});
+        let form = d.add_object(dictionary! {"Fields"=>vec![Object::Reference(widget)]});
+        let root = d.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        d.get_dictionary_mut(root).unwrap().set("AcroForm", form);
+        d.save(&input).unwrap();
+        let (out, mime) = run(
+            "forms",
+            &[input.clone()],
+            &Options::from([("action".into(), "discover".into())]),
+            dir.path(),
+        )
+        .unwrap();
+        assert_eq!(mime, "application/json");
+        let fields: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(out).unwrap()).unwrap();
+        assert_eq!(fields[0]["name"], "agree");
+        let (out, _) = run(
+            "forms",
+            &[input],
+            &Options::from([("field.agree".into(), "true".into())]),
+            dir.path(),
+        )
+        .unwrap();
+        let d = load(&out).unwrap();
+        assert_eq!(
+            d.get_dictionary(widget)
+                .unwrap()
+                .get(b"V")
+                .unwrap()
+                .as_name()
+                .unwrap(),
+            b"Yes"
         );
     }
     #[test]
