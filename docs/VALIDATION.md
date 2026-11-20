@@ -2,6 +2,8 @@
 
 20 November 2026:
 
+- Real Chromium UI: 23 catalog tools rendered, split upload through downloaded result passed,
+  mobile viewport 390px had no horizontal overflow.
 - `cargo test`: 16 passed.
 - Native HTTP workflows: merge (24 output pages from two 12-page inputs), split and organize
   (one selected page), rotate, crop, watermark, page numbers and visible sign. All downloaded
