@@ -137,11 +137,42 @@ pub fn run(
                     ids.push(id);
                 } else {
                     materialize(&mut doc, id)?;
-                    let page = doc.get_dictionary(id).map_err(err)?.clone();
-                    if page.has(b"Annots") {
-                        return Err("Duplicating annotated pages is unsupported".into());
+                    let mut page = doc.get_dictionary(id).map_err(err)?.clone();
+                    let annotations = page.remove(b"Annots");
+                    let new_id = doc.add_object(page);
+                    if let Some(annotations) = annotations {
+                        let list = doc
+                            .dereference(&annotations)
+                            .map_err(err)?
+                            .1
+                            .as_array()
+                            .map_err(err)?
+                            .clone();
+                        let mut copies = Vec::new();
+                        for annotation in list {
+                            let mut annotation = doc
+                                .dereference(&annotation)
+                                .map_err(err)?
+                                .1
+                                .as_dict()
+                                .map_err(err)?
+                                .clone();
+                            if annotation
+                                .get(b"Subtype")
+                                .ok()
+                                .and_then(|o| o.as_name().ok())
+                                == Some(b"Widget")
+                            {
+                                return Err("Duplicating form widgets is unsupported; flatten the form first".into());
+                            }
+                            annotation.set("P", new_id);
+                            copies.push(Object::Reference(doc.add_object(annotation)));
+                        }
+                        doc.get_dictionary_mut(new_id)
+                            .map_err(err)?
+                            .set("Annots", copies);
                     }
-                    ids.push(doc.add_object(page));
+                    ids.push(new_id);
                 }
             }
             rebuild_pages(&mut doc, &ids)?;
@@ -1388,6 +1419,51 @@ mod tests {
         );
         let content = d.get_page_content(d.get_pages()[&2]);
         assert!(String::from_utf8_lossy(&content).contains("ImageOpacity"));
+    }
+    #[test]
+    fn duplicate_link_annotation_preserves_action_and_backlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("links.pdf");
+        let mut d = fixture();
+        let page = d.get_pages()[&1];
+        let link = d.add_object(dictionary!{"Type"=>"Annot","Subtype"=>"Link","Rect"=>vec![0.into(),0.into(),100.into(),20.into()],"P"=>page,"A"=>dictionary!{"S"=>"URI","URI"=>Object::string_literal("https://example.com")}});
+        d.get_dictionary_mut(page)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(link)]);
+        d.save(&input).unwrap();
+        let (out, _) = run(
+            "organize",
+            &[input],
+            &Options::from([("pages".into(), "1,1,2".into())]),
+            dir.path(),
+        )
+        .unwrap();
+        let d = load(&out).unwrap();
+        let pages = d.get_pages();
+        for n in [1, 2] {
+            let annotation = d
+                .get_dictionary(pages[&n])
+                .unwrap()
+                .get(b"Annots")
+                .unwrap()
+                .as_array()
+                .unwrap()[0]
+                .as_reference()
+                .unwrap();
+            let a = d.get_dictionary(annotation).unwrap();
+            assert_eq!(a.get(b"P").unwrap().as_reference().unwrap(), pages[&n]);
+            assert_eq!(
+                a.get(b"A")
+                    .unwrap()
+                    .as_dict()
+                    .unwrap()
+                    .get(b"URI")
+                    .unwrap()
+                    .as_str()
+                    .unwrap(),
+                b"https://example.com"
+            );
+        }
     }
     #[test]
     fn numeric_validation() {
