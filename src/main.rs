@@ -15,6 +15,7 @@ use std::{
     process::{Command, ExitCode},
 };
 
+mod ai_tools;
 mod conversions;
 mod server;
 mod tools;
@@ -119,6 +120,14 @@ fn parse_args() -> Res<(PathBuf, f64, Option<PathBuf>)> {
 
 /// Compress `input` toward `limit` bytes. Returns (dpi, quality, pdf bytes); bytes may exceed limit.
 pub fn compress(input: &Path, limit: usize) -> Res<(u32, u8, Vec<u8>)> {
+    let original = std::fs::read(input).map_err(|e| e.to_string())?;
+    if original.len() <= limit {
+        let doc = Document::load_mem(&original).map_err(|e| format!("Invalid PDF: {e}"))?;
+        if doc.get_pages().is_empty() {
+            return Err("PDF has no pages".into());
+        }
+        return Ok((0, 0, original)); // Already fits: preserve signatures and image fidelity byte-for-byte.
+    }
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = std::env::temp_dir().join(format!("compress-pdf-{}-{n}", std::process::id()));
@@ -138,6 +147,9 @@ pub fn compress(input: &Path, limit: usize) -> Res<(u32, u8, Vec<u8>)> {
     let orig = Document::load(input).map_err(|e| format!("not a readable PDF: {e}"))?;
     if orig.get_pages().len() != pages {
         return Err("page count changed".into());
+    }
+    if bytes.len() > original.len() {
+        return Ok((0, 0, original));
     }
     Ok((dpi, q, bytes))
 }
@@ -731,6 +743,29 @@ fn assemble(sfnt: &[u8], mut tables: Vec<([u8; 4], Vec<u8>)>) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fitting_compression_preserves_original_bytes() {
+        use lopdf::{Object, Stream, dictionary};
+        let mut doc = Document::with_version("1.5");
+        let pages = doc.new_object_id();
+        let content = doc.add_object(Stream::new(dictionary! {}, Vec::new()));
+        let page=doc.add_object(dictionary!{"Type"=>"Page","Parent"=>pages,"MediaBox"=>vec![0.into(),0.into(),100.into(),100.into()],"Contents"=>content});
+        doc.objects.insert(
+            pages,
+            Object::Dictionary(dictionary! {"Type"=>"Pages","Kids"=>vec![page.into()],"Count"=>1}),
+        );
+        let root = doc.add_object(dictionary! {"Type"=>"Catalog","Pages"=>pages});
+        doc.trailer.set("Root", root);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("input.pdf");
+        doc.save(&path).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let result = super::compress(&path, bytes.len()).unwrap();
+        assert_eq!(result.2, bytes);
+        assert_eq!((result.0, result.1), (0, 0));
+        std::fs::write(&path, b"not PDF").unwrap();
+        assert!(super::compress(&path, 100).is_err());
+    }
     use super::*;
 
     #[test]
