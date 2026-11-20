@@ -34,6 +34,9 @@ function showError(message) {
   $('job-error').hidden = !message;
 }
 function clearResult() {
+  $('compression-result')?.remove();
+  if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
+  state.previewUrl = null;
   if (state.url) URL.revokeObjectURL(state.url);
   state.url = null;
   $('download-panel').hidden = true;
@@ -223,6 +226,38 @@ async function processFiles(event) {
     $('download').download = downloadName(response.headers.get('Content-Disposition'));
     $('download-panel').hidden = false;
     $('job-status').textContent = 'Processing complete. Your original files have not been changed.';
+    if (state.selected.id === 'compress') {
+      const panel = element('section');
+      panel.id = 'compression-result';
+      const kb = (bytes) => `${(bytes / 1000).toFixed(1)} KB`;
+      const target = Number(data.get('target_kb'));
+      const fits = blob.size <= target * 1000;
+      panel.append(element('h3', '', fits ? 'Target reached' : 'Target not reached'));
+      panel.append(element('p', '', `Original ${kb(state.files[0].size)}; result ${kb(blob.size)}; target ${target} KB (1 KB = 1000 bytes)`));
+      panel.append(element('p', '', fits ? 'Compare readability before saving. Your original is unchanged.' : 'Best available result exceeds your target. Increase the target to retain more detail.'));
+      const toggle = element('button', 'btn-ghost', 'Compare original and result');
+      toggle.type = 'button';
+      toggle.setAttribute('aria-expanded', 'false');
+      const previews = element('div', 'compression-previews');
+      previews.hidden = true;
+      toggle.addEventListener('click', () => {
+        previews.hidden = !previews.hidden;
+        toggle.setAttribute('aria-expanded', String(!previews.hidden));
+        if (previews.childElementCount) return;
+        state.previewUrl = URL.createObjectURL(state.files[0]);
+        for (const [title, url] of [['Original PDF', state.previewUrl], ['Compressed PDF', state.url]]) {
+          const group = element('div');
+          const frame = element('iframe');
+          frame.title = title;
+          frame.src = url;
+          group.append(element('h4', '', title), frame);
+          previews.append(group);
+        }
+      });
+      panel.append(toggle, previews);
+      $('download-panel').prepend(panel);
+      $('job-status').textContent = fits ? 'Compression complete. Target reached.' : 'Compression complete, but target size was not reached.';
+    }
     $('download').focus();
   } catch (error) {
     $('job-status').textContent = '';

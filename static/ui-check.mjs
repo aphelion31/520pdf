@@ -14,7 +14,7 @@ function samplePdf() {
   const xref = Buffer.byteLength(pdf); pdf += `xref\n0 ${offsets.length}\n0000000000 65535 f \n` + offsets.slice(1).map(n => `${String(n).padStart(10, '0')} 00000 n \n`).join('') + `trailer\n<< /Size ${offsets.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   return Buffer.from(pdf);
 }
-const fields = { protect: [{ name: 'password', label: 'PDF password', type: 'password', required: true }], crop: ['x', 'y', 'width', 'height'].map(name => ({ name, type: 'number', value: '20' })), redact: [{ name: 'rectangles', type: 'textarea', value: '[]' }], sign: [{ name: 'text', type: 'text', value: '' }] };
+const fields = { compress: [{ name: 'target_kb', label: 'Target KB', type: 'number', value: '250' }], protect: [{ name: 'password', label: 'PDF password', type: 'password', required: true }], crop: ['x', 'y', 'width', 'height'].map(name => ({ name, type: 'number', value: '20' })), redact: [{ name: 'rectangles', type: 'textarea', value: '[]' }], sign: [{ name: 'text', type: 'text', value: '' }] };
 const tools = ids.map((id) => ({ id, name: id === 'merge' ? 'Merge PDF' : id === 'protect' ? 'Protect PDF' : id, description: `Process ${id} documents`, category: id === 'merge' ? 'Organize' : 'Convert', accept: '.pdf', multiple: id === 'merge', fields: fields[id] || [] }));
 let failCatalog = false;
 let failJob = false;
@@ -110,6 +110,14 @@ try {
   await page.getByLabel('Signature left (points)').fill('60');
   assert.equal(await page.locator('.placement-image').evaluate(e => e.style.left), '20%');
   assert.ok((await page.locator('[name=image_base64]').inputValue()).length > 100);
+  await page.getByRole('button', { name: 'Close tool' }).click();
+  failJob = false;
+  await page.locator('.tool-card').filter({ hasText: 'Process compress' }).click();
+  await page.locator('#file-input').setInputFiles({ name: 'sample.pdf', mimeType: 'application/pdf', buffer: samplePdf() });
+  await page.getByRole('button', { name: 'Process', exact: true }).click();
+  await page.locator('#compression-result').waitFor();
+  await page.getByRole('button', { name: 'Compare original and result' }).click();
+  assert.equal(await page.locator('#compression-result iframe').count(), 2);
   await page.getByRole('button', { name: 'Close tool' }).click();
   await page.setViewportSize({ width: 375, height: 812 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

@@ -502,7 +502,7 @@ fn catalog() -> Value {
     ];
     let tools:Vec<Value>=rows.into_iter().map(|(id,name,desc,cat,accept,multiple)|{
         let fields=match id {
-            "compress"=>vec![field("target_kb","Target size (KB)","number","250")],
+            "compress"=>vec![json!({"name":"target_kb","label":"Target size (KB, 1000 bytes)","type":"number","value":"250","min":10,"max":100000,"step":1,"help":"Choose 250 KB or a custom target. Smaller targets may reduce image detail. Target size is not guaranteed."})],
             "split"=>vec![field("pages","Pages (example: 1,3-5,2)","text","1"),field("mode","Split mode (extract, all, ranges)","text","extract"),field("ranges","Separate output groups (example: 1-2;3-4)","text","")],
             "organize"=>vec![field("pages","Page order, duplicates allowed (1,3,1)","text","1")],
             "rotate"=>vec![field("angle","Clockwise rotation (90, 180, 270)","number","90")],
