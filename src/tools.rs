@@ -113,17 +113,44 @@ pub fn run(
             }
         }
         "crop" => {
+            let margins = options.contains_key("margin_top")
+                || options.contains_key("margin_bottom")
+                || options.contains_key("margin_left")
+                || options.contains_key("margin_right");
             let x = number(options, "x", 0.)?;
             let y = number(options, "y", 0.)?;
             let w = number(options, "width", 0.)?;
             let h = number(options, "height", 0.)?;
-            if w <= 0. || h <= 0. {
+            if !margins && (w <= 0. || h <= 0.) {
                 return Err("crop width and height must be positive PDF points".into());
             }
             for n in selected {
                 let id = pages[&n];
                 let bounds = page_box(&doc, id)?;
-                if x < bounds[0] || y < bounds[1] || x + w > bounds[2] || y + h > bounds[3] {
+                let (x, y, w, h) = if margins {
+                    let left = number(options, "margin_left", 0.)?;
+                    let right = number(options, "margin_right", 0.)?;
+                    let top = number(options, "margin_top", 0.)?;
+                    let bottom = number(options, "margin_bottom", 0.)?;
+                    if [left, right, top, bottom].iter().any(|v| *v < 0.) {
+                        return Err("Crop margins must be nonnegative".into());
+                    }
+                    (
+                        bounds[0] + left,
+                        bounds[1] + bottom,
+                        bounds[2] - bounds[0] - left - right,
+                        bounds[3] - bounds[1] - bottom - top,
+                    )
+                } else {
+                    (x, y, w, h)
+                };
+                if w <= 0.
+                    || h <= 0.
+                    || x < bounds[0]
+                    || y < bounds[1]
+                    || x + w > bounds[2]
+                    || y + h > bounds[3]
+                {
                     return Err("Crop rectangle exceeds page MediaBox".into());
                 }
                 doc.get_dictionary_mut(id).map_err(err)?.set(
@@ -1057,6 +1084,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let input = dir.path().join("input.pdf");
         fixture().save(&input).unwrap();
+        let crop = Options::from([
+            ("pages".into(), "2".into()),
+            ("margin_left".into(), "10".into()),
+            ("margin_top".into(), "20".into()),
+        ]);
+        let (path, _) = run("crop", &[input.clone()], &crop, dir.path()).unwrap();
+        let d = load(&path).unwrap();
+        let box_ = inherited(&d, d.get_pages()[&2], b"CropBox")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            box_.as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_float().unwrap())
+                .collect::<Vec<_>>(),
+            vec![10., 0., 600., 780.]
+        );
         let opts = Options::from([("rotations".into(), r#"{"1":180,"2":270}"#.into())]);
         let (path, _) = run("rotate", &[input.clone()], &opts, dir.path()).unwrap();
         let d = load(&path).unwrap();
