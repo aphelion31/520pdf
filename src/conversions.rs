@@ -273,7 +273,13 @@ fn command_output(program: &str, args: &[String], dir: &Path) -> Res<String> {
         }
         thread::sleep(Duration::from_millis(50));
     };
-    let detail = fs::read_to_string(&log).unwrap_or_default();
+    use std::io::Read;
+    let mut detail = String::new();
+    if let Ok(file) = fs::File::open(&log) {
+        let mut bytes = Vec::new();
+        let _ = file.take(65_536).read_to_end(&mut bytes);
+        detail = String::from_utf8_lossy(&bytes).into_owned();
+    }
     let _ = fs::remove_file(log);
     if status.success() {
         Ok(detail)

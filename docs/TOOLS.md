@@ -41,4 +41,6 @@ Only exact multipart `consent=true` enables an AI call. All other values are fal
 
 ## Checks
 
+`sh tests/conversions-smoke.sh http://127.0.0.1:8080` runs generated-fixture HTTP acceptance checks inside the runtime, including real encryption/decryption, OCR, repair, PDF/A metadata, redaction text absence/pixel blackness and AI consent rejection without calling a provider. The Docker image includes it at `/usr/local/share/pdf520/conversions-smoke.sh`. CLI diagnostic reads are capped at 64 KiB. Docker binds `0.0.0.0:8080` by default, restrict host port publishing as needed.
+
 `cargo test` includes HTML resource-discarding, text-comparison and strict AI consent checks. Full CLI acceptance requires the Ubuntu runtime. An absent local Docker daemon does not prove runtime behavior. Recommended acceptance fixtures: office documents for every supported extension, HTML with localhost/metadata/file resources, two PDFs with changed text, image-only PDF for OCR, encrypted PDF wrong/right passwords, malformed xref repair and redaction with a known secret that must not appear in `pdftotext` or extracted PDF objects.

@@ -17,7 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && groupadd --gid 1001 circleit && useradd --uid 1001 --gid circleit --create-home circleit \
     && install -d -o circleit -g circleit -m 700 /tmp/pdf520
 COPY --from=builder /app/target/release/pdf520 /usr/local/bin/pdf520
-ENV TMPDIR=/tmp/pdf520 PORT=8080 HOME=/home/circleit
+COPY tests/conversions-smoke.sh /usr/local/share/pdf520/conversions-smoke.sh
+ENV TMPDIR=/tmp/pdf520 PORT=8080 BIND_ADDR=0.0.0.0:8080 HOME=/home/circleit
 USER circleit
 EXPOSE 8080
 ENTRYPOINT ["pdf520"]
