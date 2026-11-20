@@ -374,7 +374,7 @@ fn catalog() -> Value {
         (
             "compare",
             "Compare PDF",
-            "Compare text in two documents.",
+            "Compare extracted text and rasterized page appearance.",
             "Edit",
             ".pdf",
             true,
@@ -414,7 +414,7 @@ fn catalog() -> Value {
         (
             "html-to-pdf",
             "HTML to PDF",
-            "Convert uploaded HTML to text-only PDF (no CSS/images).",
+            "Render uploaded HTML and CSS without external resource access.",
             "Convert",
             ".html,.htm",
             false,
@@ -438,7 +438,7 @@ fn catalog() -> Value {
         (
             "pdfa",
             "PDF to PDF/A",
-            "Create an archival PDF candidate.",
+            "Convert to PDF/A-2b and require veraPDF compliance validation.",
             "Convert",
             ".pdf",
             false,
@@ -494,7 +494,7 @@ fn catalog() -> Value {
         (
             "translate",
             "Translate PDF",
-            "Translate extracted text, not the PDF layout, with your provider.",
+            "Translate page-by-page to text or PDF with your provider.",
             "AI",
             ".pdf",
             false,

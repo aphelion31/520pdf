@@ -113,13 +113,53 @@ HTML(string=open(sys.argv[1], encoding='utf-8').read(), url_fetcher=deny).write_
             return Ok((path, "text/plain; charset=utf-8"));
         }
         "pdf-to-markdown" => {
-            let text = pdf_text(&input, &dir, "extracted.txt")?;
-            if text.trim().is_empty() {
-                return Err("No extractable text. Run Scan to PDF OCR first".into());
-            }
             let path = dir.join("result.md");
-            // ponytail: preserve extracted paragraphs, no invented headings or table structure.
-            fs::write(&path, text.replace('\u{000c}', "\n\n---\n\n")).map_err(|e| e.to_string())?;
+            let xml = dir.join("layout.xml");
+            command(
+                "pdftohtml",
+                &[
+                    "-xml".into(),
+                    "-hidden".into(),
+                    "-i".into(),
+                    input.display().to_string(),
+                    xml.display().to_string(),
+                ],
+                &dir,
+            )?;
+            command("python3", &["-c".into(), r#"import sys, xml.etree.ElementTree as E, collections
+root=E.parse(sys.argv[1]).getroot()
+fonts={n.get('id'):float(n.get('size','0')) for n in root.iter('fontspec')}
+lines=[n for n in root.iter('text') if ''.join(n.itertext()).strip()]
+if not lines: raise ValueError('No extractable text. Run OCR first')
+body=collections.Counter(fonts.get(n.get('font'),0) for n in lines).most_common(1)[0][0]
+def esc(s): return s.replace('\\','\\\\').replace('|','\\|').replace('\n',' ')
+pages=[]
+for page in root.iter('page'):
+    nodes=[n for n in page.findall('text') if ''.join(n.itertext()).strip()]
+    rows=[]
+    for n in nodes:
+        top=int(n.get('top','0'))
+        if rows and abs(rows[-1][0]-top)<=2: rows[-1][1].append(n)
+        else: rows.append((top,[n]))
+    out=[]; i=0
+    while i<len(rows):
+        cells=sorted(rows[i][1], key=lambda n:int(n.get('left','0')))
+        if len(cells)>=2 and i+1<len(rows):
+            nxt=sorted(rows[i+1][1], key=lambda n:int(n.get('left','0')))
+            if len(nxt)==len(cells) and all(abs(int(a.get('left','0'))-int(b.get('left','0')))<=5 for a,b in zip(cells,nxt)):
+                def row(ns): return '| '+' | '.join(esc(''.join(n.itertext()).strip()) for n in ns)+' |'
+                out += [row(cells), '| '+' | '.join('---' for n in cells)+' |',row(nxt)]; i+=2
+                while i<len(rows):
+                    ns=sorted(rows[i][1],key=lambda n:int(n.get('left','0')))
+                    if len(ns)!=len(cells) or not all(abs(int(a.get('left','0'))-int(b.get('left','0')))<=5 for a,b in zip(cells,ns)): break
+                    out.append(row(ns)); i+=1
+                continue
+        text=' '.join(esc(''.join(n.itertext()).strip()) for n in cells)
+        size=max(fonts.get(n.get('font'),0) for n in cells)
+        out.append(('# ' if body and size>=body*1.4 and len(text)<160 else '')+text); i+=1
+    pages.append('\n\n'.join(out))
+open(sys.argv[2],'w',encoding='utf-8').write('\n\n---\n\n'.join(pages))"#.into(), xml.display().to_string(), path.display().to_string()], &dir)?;
+            ensure_file(&path)?;
             return Ok((path, "text/markdown; charset=utf-8"));
         }
         "unlock" => {
@@ -143,12 +183,21 @@ HTML(string=open(sys.argv[1], encoding='utf-8').read(), url_fetcher=deny).write_
         }
         "protect" => {
             let password = required_string(options, "password")?;
-            let owner = match string_option(options, "owner_password") {
-                Some(v) if !v.is_empty() => required_string(options, "owner_password")?,
-                _ => password,
-            };
+            let owner = required_string(options, "owner_password")?;
+            if owner == password {
+                return Err("Owner password must differ from the user password".into());
+            }
+            let print = string_option(options, "print").unwrap_or("full");
+            let modify = string_option(options, "modify").unwrap_or("all");
+            let extract = string_option(options, "extract").unwrap_or("y");
+            if !["full", "low", "none"].contains(&print)
+                || !["all", "annotate", "form", "assembly", "none"].contains(&modify)
+                || !["y", "n"].contains(&extract)
+            {
+                return Err("Invalid PDF permission setting".into());
+            }
             // QPDF JSON job avoids passwords in command-line arguments/process listings.
-            let job = serde_json::json!({"inputFile": input, "outputFile": out, "encrypt": {"userPassword": password, "ownerPassword": owner, "256bit": {}}});
+            let job = serde_json::json!({"inputFile": input, "outputFile": out, "encrypt": {"userPassword": password, "ownerPassword": owner, "256bit": {"print":print,"modify":modify,"extract":extract}}});
             let job_file = secret_file(&dir, "encrypt-job.json", &job.to_string())?;
             let result = command(
                 "qpdf",
@@ -172,6 +221,23 @@ HTML(string=open(sys.argv[1], encoding='utf-8').read(), url_fetcher=deny).write_
                 ],
                 &dir,
             )?;
+            let report = command_output(
+                "verapdf",
+                &[
+                    "--flavour".into(),
+                    "2b".into(),
+                    "--loglevel".into(),
+                    "0".into(),
+                    out.display().to_string(),
+                ],
+                &dir,
+            )
+            .map_err(|e| format!("PDF/A validation unavailable or failed: {e}"))?;
+            if !report.contains("isCompliant=\"true\"") || report.contains("isCompliant=\"false\"")
+            {
+                let _ = fs::remove_file(&out);
+                return Err("veraPDF did not confirm PDF/A compliance".into());
+            }
         }
         "scan-to-pdf" => {
             let language = string_option(options, "language").unwrap_or("eng");

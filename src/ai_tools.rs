@@ -304,7 +304,7 @@ fn run_with_provider(
     // Only escaped text enters this generated HTML, never user-provided markup or URLs.
     let pages = output
         .split('\u{c}')
-        .map(|page| format!("<div class=\"page\">{}</div>", escaped(page)))
+        .map(|page| format!("<p class=\"page\">{}</p>", escaped(page)))
         .collect::<Vec<_>>()
         .join("");
     let html = format!(

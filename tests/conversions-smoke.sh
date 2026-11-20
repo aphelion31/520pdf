@@ -25,9 +25,29 @@ showpage
 PS
 gs -q -dBATCH -dNOPAUSE -sDEVICE=pdfwrite -sOutputFile="$work/first.pdf" "$work/first.ps"
 gs -q -dBATCH -dNOPAUSE -sDEVICE=pdfwrite -sOutputFile="$work/second.pdf" "$work/second.ps"
+cat > "$work/structured.ps" <<'PS'
+%!PS-Adobe-3.0
+<< /PageSize [612 792] >> setpagedevice
+/Helvetica findfont 28 scalefont setfont 72 720 moveto (DOCUMENT HEADING) show
+/Helvetica findfont 12 scalefont setfont
+72 680 moveto (First paragraph sentence.) show
+72 640 moveto (Name) show 300 640 moveto (Value) show
+72 620 moveto (Alpha) show 300 620 moveto (One) show
+72 600 moveto (Beta) show 300 600 moveto (Two) show
+showpage
+PS
+gs -q -dBATCH -dNOPAUSE -sDEVICE=pdfwrite -sOutputFile="$work/structured.pdf" "$work/structured.ps"
 cat > "$work/input.html" <<'HTML'
 <html><head><style>@import url('http://127.0.0.1:8080/health'); .hidden { display: none } .break { break-before: page }</style></head><body><p>SAFE HTML VISIBLE</p><p class="hidden">HIDDEN CSS</p><img src="file:///etc/passwd"><img src="http://169.254.169.254/latest/meta-data/"><iframe src="http://127.0.0.1:8080/health">HIDDEN FRAME</iframe><script>HIDDEN SCRIPT</script><p class="break">SECOND PAGE</p></body></html>
 HTML
+cat > "$work/slide.fodp" <<'XML'
+<?xml version="1.0"?><office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" office:version="1.2" office:mimetype="application/vnd.oasis.opendocument.presentation"><office:body><office:presentation><draw:page draw:name="Slide1"><draw:frame svg:x="1cm" svg:y="1cm" svg:width="15cm" svg:height="3cm"><draw:text-box><text:p>SLIDE FIDELITY MARKER</text:p></draw:text-box></draw:frame></draw:page></office:presentation></office:body></office:document>
+XML
+cat > "$work/sheet.fods" <<'XML'
+<?xml version="1.0"?><office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.2" office:mimetype="application/vnd.oasis.opendocument.spreadsheet"><office:body><office:spreadsheet><table:table table:name="Sheet1"><table:table-row><table:table-cell office:value-type="string"><text:p>SHEETMARK</text:p></table:table-cell><table:table-cell office:value-type="float" office:value="123"><text:p>123</text:p></table:table-cell></table:table-row></table:table></office:spreadsheet></office:body></office:document>
+XML
+libreoffice -env:UserInstallation="file://$work/fixture-profile" --headless --convert-to 'pptx:Impress MS PowerPoint 2007 XML' --outdir "$work" "$work/slide.fodp" >/dev/null
+libreoffice -env:UserInstallation="file://$work/fixture-profile" --headless --convert-to 'xlsx:Calc MS Excel 2007 XML' --outdir "$work" "$work/sheet.fods" >/dev/null
 python3 - "$work" <<'PY'
 import sys, zipfile
 from pathlib import Path
@@ -59,11 +79,15 @@ check_pdf() { qpdf --check "$1" >/dev/null; }
 post office-to-pdf "$work/office.pdf" -F "files=@$work/office.docx"
 check_pdf "$work/office.pdf"
 pdftotext "$work/office.pdf" - | grep -q 'SAFE OFFICE DOCUMENT'
+post office-to-pdf "$work/slide.pdf" -F "files=@$work/slide.pptx"
+pdftotext "$work/slide.pdf" - | grep -q 'SLIDE FIDELITY MARKER'
+post office-to-pdf "$work/sheet.pdf" -F "files=@$work/sheet.xlsx"
+pdftotext "$work/sheet.pdf" - | grep -q 'SHEETMARK'
 post html-to-pdf "$work/html.pdf" -F "files=@$work/input.html"
 check_pdf "$work/html.pdf"
 pdftotext "$work/html.pdf" "$work/html.txt"
 grep -q 'SAFE HTML VISIBLE' "$work/html.txt"
-if grep -Eq 'HIDDEN|root:|169\.254|127\.0\.0\.1' "$work/html.txt"; then echo 'HTML resource/script leak' >&2; exit 1; fi
+if grep -Eq 'HIDDEN CSS|HIDDEN SCRIPT|root:|169\.254|127\.0\.0\.1' "$work/html.txt"; then echo 'HTML resource/script leak' >&2; exit 1; fi
 pdfinfo "$work/html.pdf" | grep -Eq '^Pages:[[:space:]]+2$'
 post compare "$work/compare.txt" -F "files=@$work/first.pdf" -F "files=@$work/second.pdf"
 grep -q ALPHA "$work/compare.txt"
@@ -72,8 +96,14 @@ grep -q 'Visual comparison' "$work/compare.txt"
 grep -Eq 'Page 1: [1-9][0-9]* of [0-9]+ pixels differ' "$work/compare.txt"
 post pdf-to-markdown "$work/result.md" -F "files=@$work/first.pdf"
 grep -q 'SAFE SECRET ALPHA' "$work/result.md"
-post protect "$work/protected.pdf" -F "files=@$work/first.pdf" -F 'password=smoke-secret' -F 'owner_password=smoke-owner'
+post pdf-to-markdown "$work/structured.md" -F "files=@$work/structured.pdf"
+grep -q '^# DOCUMENT HEADING' "$work/structured.md"
+grep -q 'First paragraph sentence' "$work/structured.md"
+grep -q '| Name | Value |' "$work/structured.md"
+grep -q '| Alpha | One |' "$work/structured.md"
+post protect "$work/protected.pdf" -F "files=@$work/first.pdf" -F 'password=smoke-secret' -F 'owner_password=smoke-owner' -F 'print=none' -F 'modify=none' -F 'extract=n'
 qpdf --password=smoke-secret --check "$work/protected.pdf" >/dev/null
+qpdf --password=smoke-secret --show-encryption "$work/protected.pdf" | grep -q 'extract for any purpose: not allowed'
 if qpdf --password=wrong --check "$work/protected.pdf" >/dev/null 2>&1; then echo 'Encryption accepted wrong password' >&2; exit 1; fi
 post unlock "$work/unlocked.pdf" -F "files=@$work/protected.pdf" -F 'password=smoke-secret'
 check_pdf "$work/unlocked.pdf"
