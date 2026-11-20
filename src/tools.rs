@@ -42,16 +42,17 @@ pub fn run(
         let mut fields = Vec::new();
         for (&id, object) in &doc.objects {
             let Ok(dict) = object.as_dict() else { continue };
-            let Ok(name) = dict.get(b"T").and_then(Object::as_str) else {
+            if dict.get(b"T").and_then(Object::as_str).is_err() {
                 continue;
-            };
+            }
+            let name = field_name(&doc, id)?;
             let kind = inherited(&doc, id, b"FT")?.and_then(|v| {
                 v.as_name()
                     .ok()
                     .map(|v| String::from_utf8_lossy(v).into_owned())
             });
             if let Some(kind) = kind {
-                fields.push(serde_json::json!({"name":String::from_utf8_lossy(name),"type":kind}));
+                fields.push(serde_json::json!({"name":name,"type":kind}));
             }
         }
         fields.sort_by_key(|f| f["name"].as_str().unwrap_or("").to_owned());
@@ -435,6 +436,26 @@ fn selection_with_duplicates(
     }
     Ok(out)
 }
+fn field_name(doc: &Document, id: ObjectId) -> Result<String> {
+    let mut names = Vec::new();
+    let mut current = id;
+    let mut seen = HashSet::new();
+    loop {
+        if !seen.insert(current) {
+            return Err("Cyclic form field hierarchy".into());
+        }
+        let dict = doc.get_dictionary(current).map_err(err)?;
+        if let Ok(name) = dict.get(b"T").and_then(Object::as_str) {
+            names.push(String::from_utf8_lossy(name).into_owned());
+        }
+        match dict.get(b"Parent").and_then(Object::as_reference) {
+            Ok(parent) => current = parent,
+            Err(_) => break,
+        }
+    }
+    names.reverse();
+    Ok(names.join("."))
+}
 fn inherited(doc: &Document, id: ObjectId, key: &[u8]) -> Result<Option<Object>> {
     let mut current = id;
     let mut seen = HashSet::new();
@@ -738,10 +759,10 @@ fn fill_forms(doc: &mut Document, options: &Options) -> Result<()> {
             Ok(d) => d,
             Err(_) => continue,
         };
-        let name = match d.get(b"T").and_then(Object::as_str) {
-            Ok(v) => String::from_utf8_lossy(v).to_string(),
-            Err(_) => continue,
-        };
+        if d.get(b"T").and_then(Object::as_str).is_err() {
+            continue;
+        }
+        let name = field_name(doc, id)?;
         let Some(value) = requested.get(&name) else {
             continue;
         };
@@ -1464,6 +1485,48 @@ mod tests {
                 b"https://example.com"
             );
         }
+    }
+    #[test]
+    fn hierarchical_form_discovery_and_fill() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("nested.pdf");
+        let mut d = fixture();
+        let parent = d.add_object(dictionary! {"T"=>Object::string_literal("patient")});
+        let field = d.add_object(dictionary!{"T"=>Object::string_literal("name"),"FT"=>"Tx","Parent"=>parent,"Rect"=>vec![0.into(),0.into(),120.into(),20.into()]});
+        d.get_dictionary_mut(parent)
+            .unwrap()
+            .set("Kids", vec![Object::Reference(field)]);
+        let form = d.add_object(dictionary! {"Fields"=>vec![Object::Reference(parent)]});
+        let root = d.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        d.get_dictionary_mut(root).unwrap().set("AcroForm", form);
+        d.save(&input).unwrap();
+        let (path, _) = run(
+            "forms",
+            &[input.clone()],
+            &Options::from([("action".into(), "discover".into())]),
+            dir.path(),
+        )
+        .unwrap();
+        let fields: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(fields[0]["name"], "patient.name");
+        let (path, _) = run(
+            "forms",
+            &[input],
+            &Options::from([("field.patient.name".into(), "Alice".into())]),
+            dir.path(),
+        )
+        .unwrap();
+        let d = load(&path).unwrap();
+        assert_eq!(
+            d.get_dictionary(field)
+                .unwrap()
+                .get(b"V")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            b"Alice"
+        );
     }
     #[test]
     fn numeric_validation() {
