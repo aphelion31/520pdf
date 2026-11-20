@@ -374,7 +374,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
-            for text in ["Xin chào Việt Nam", "日本語の文章"] {
+            for text in ["Xin chào Việt Nam", "日本語の文章", "SUMMARY VERIFIED"] {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut buffer = [0; 8192];
                 let n = stream.read(&mut buffer).unwrap();
@@ -411,9 +411,20 @@ mod tests {
             .contains("consent")
         );
         options.insert("consent".into(), "true".into());
-        let (pdf, mime) =
-            run_with_provider("translate", &[input], &options, dir, Some(&provider)).unwrap();
+        let (pdf, mime) = run_with_provider(
+            "translate",
+            &[input.clone()],
+            &options,
+            dir,
+            Some(&provider),
+        )
+        .unwrap();
         assert_eq!(mime, "application/pdf");
+        options.insert("output_format".into(), "txt".into());
+        let (summary, mime) =
+            run_with_provider("summarize", &[input], &options, dir, Some(&provider)).unwrap();
+        assert_eq!(mime, "text/plain; charset=utf-8");
+        assert_eq!(fs::read_to_string(summary).unwrap(), "SUMMARY VERIFIED");
         server.join().unwrap();
         let extracted = dir.join("output.txt");
         command(
