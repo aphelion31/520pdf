@@ -7,7 +7,7 @@ Lihat juga [01-GIT-COMMIT.md](01-GIT-COMMIT.md), [02-GIT-BRANCH.md](02-GIT-BRANC
 | Branch | Isi | Deploy |
 |---|---|---|
 | `staging` | Hasil merge semua fitur/fix | Server staging (Docker Compose) |
-| `master` | Versi rilis | Server master (Docker Compose) |
+| `master` | Versi rilis | Server production (Docker Compose) |
 
 Deploy dilakukan user. Merge PR tidak sama dengan deploy.
 
@@ -22,7 +22,7 @@ Deploy dilakukan user. Merge PR tidak sama dengan deploy.
 1. Buat PR **`staging` -> `master`** dengan judul:
 
    ```
-   pr: ready to master
+   pr: ready to production
    ```
 
    Isi body: daftar perubahan (Fixes / Features) dengan nomor PR, plus catatan deploy
@@ -62,7 +62,7 @@ Deploy dilakukan user. Merge PR tidak sama dengan deploy.
 
    Rilis belum dianggap selesai sebelum tag dan Release terbit.
 
-5. Deploy master oleh user (lihat [03-GIT-PR-FLOW.md](03-GIT-PR-FLOW.md#deploy)). Set `APP_VERSION=X.Y.Z` di `.env`.
+5. Deploy production oleh user (lihat [03-GIT-PR-FLOW.md](03-GIT-PR-FLOW.md#deploy)). Set `APP_VERSION=X.Y.Z` di `.env`.
 
 ## Riwayat versi
 
