@@ -83,7 +83,7 @@
         const canvas = node('canvas'); canvas.width = Math.ceil(view.width); canvas.height = Math.ceil(view.height);
         canvas.setAttribute('aria-label', `Preview of page ${number}`);
         await page.render({ canvasContext: canvas.getContext('2d'), viewport: view }).promise;
-        pages.push({ number, canvas, rotation: 0, selected: true, width: viewport.width, height: viewport.height });
+        pages.push({ number, canvas, rotation: 0, selected: true, width: viewport.width, height: viewport.height, originalRotation: viewport.rotation, view: page.view });
         drawPages();
       }
       grid.inert = false;
@@ -97,6 +97,7 @@
   }
   function addRectangleEditor() {
     const page = pages[0]; if (!page) return;
+    if (page.originalRotation || page.view[0] !== 0 || page.view[1] !== 0) { host.append(node('p', 'preview-status', 'Visual rectangle editing is unavailable for rotated or offset pages. Use the coordinate fields below.')); return; }
     const panel = node('div', 'rectangle-editor');
     panel.append(node('h4', '', tool.id === 'crop' ? 'Crop area on page 1' : 'Redaction area on page 1'), node('p', 'preview-status', 'Drag on the page to set the rectangle. Coordinates are in PDF points from the bottom left.'));
     const stage = node('div', 'rectangle-stage'); const canvas = node('canvas'); canvas.width = page.canvas.width; canvas.height = page.canvas.height; canvas.getContext('2d').drawImage(page.canvas, 0, 0);
