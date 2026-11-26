@@ -12,8 +12,8 @@ export default function CompressPdf() {
     const first = match(".pdf")[0];
     return first ? [first.file] : [];
   });
-  const [preset, setPreset] = useState<"low" | "medium" | "high">("medium");
-  const [targetKb, setTargetKb] = useState("");
+  const [preset, setPreset] = useState<"low" | "medium" | "high">("high");
+  const [targetKb, setTargetKb] = useState("250");
   const [removeMetadata, setRemoveMetadata] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,43 +81,77 @@ export default function CompressPdf() {
 
         <div className="grid gap-3 sm:grid-cols-3">
           {[
-            { id: "low" as const, title: "Low compression", desc: "75% target · Highest visual fidelity" },
-            { id: "medium" as const, title: "Balanced", desc: "45% target · Recommended mix" },
-            { id: "high" as const, title: "Maximum shrink", desc: "25% target · Smallest file size" },
-          ].map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => {
-                setPreset(item.id);
-                setTargetKb("");
-              }}
-              className={`rounded-xl border p-3.5 text-left transition-colors ${
-                preset === item.id && !targetKb.trim()
-                  ? "border-[var(--accent)] bg-[var(--accent-soft)]"
-                  : "border-[var(--border-subtle)] bg-[var(--bg-page)]"
-              }`}
-            >
-              <p className="text-sm font-bold text-[var(--ink-primary)]">{item.title}</p>
-              <p className="mt-0.5 text-xs text-[var(--ink-muted)]">{item.desc}</p>
-            </button>
-          ))}
+            {
+              id: "low" as const,
+              title: "Low compression",
+              ratio: 0.75,
+              desc: "75% target · Highest visual fidelity",
+            },
+            {
+              id: "medium" as const,
+              title: "Balanced",
+              ratio: 0.45,
+              desc: "45% target · Recommended mix",
+            },
+            {
+              id: "high" as const,
+              title: "Maximum shrink",
+              ratio: 0.25,
+              desc: "250 KB lowest · Smallest file size",
+            },
+          ].map((item) => {
+            const active =
+              preset === item.id && (!targetKb.trim() || (item.id === "high" && targetKb.trim() === "250"));
+            const estKb = files[0]
+              ? item.id === "high"
+                ? 250
+                : Math.max(250, Math.round((files[0].size / 1000) * item.ratio))
+              : null;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  setPreset(item.id);
+                  setTargetKb(item.id === "high" ? "250" : "");
+                }}
+                className={`rounded-xl border p-3.5 text-left transition-colors ${
+                  active
+                    ? "border-[var(--accent)] bg-[var(--accent-soft)]"
+                    : "border-[var(--border-subtle)] bg-[var(--bg-page)]"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-bold text-[var(--ink-primary)]">{item.title}</p>
+                  {estKb !== null && (
+                    <span className="rounded-md bg-[var(--bg-surface)] px-2 py-0.5 text-[11px] font-bold text-[var(--accent)] tabular-nums">
+                      ≤ {estKb} KB
+                    </span>
+                  )}
+                </div>
+                <p className="mt-0.5 text-xs text-[var(--ink-muted)]">{item.desc}</p>
+              </button>
+            );
+          })}
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
-              Custom target size (KB, optional)
+              Custom target size (KB, min 250 KB)
             </label>
             <input
               type="number"
-              min={10}
+              min={250}
               max={100000}
               value={targetKb}
               onChange={(e) => setTargetKb(e.target.value)}
               placeholder="250"
               className="mt-1.5 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-page)] px-3.5 py-2.5 text-sm"
             />
+            <p className="mt-1 text-[11px] text-[var(--ink-muted)]">
+              250 KB is our lowest compression floor.
+            </p>
           </div>
 
           <label className="flex items-center gap-3 self-end rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-page)] px-4 py-3 text-sm">

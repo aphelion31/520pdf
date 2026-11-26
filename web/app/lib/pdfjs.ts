@@ -1,5 +1,6 @@
 export interface PdfPageRender {
   pageNumber: number;
+  totalPages?: number;
   width: number;
   height: number;
   rotation: number;
@@ -96,6 +97,7 @@ export async function renderSinglePage(
     await page.render({ canvasContext: ctx, viewport: vp }).promise;
     return {
       pageNumber: num,
+      totalPages: doc.numPages as number,
       width: baseVp.width,
       height: baseVp.height,
       rotation: baseVp.rotation || 0,

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ImageDown, Loader2 } from "lucide-react";
+import { BasecoatSelect } from "~/components/BasecoatSelect";
 import { FileDropzone } from "~/components/FileDropzone";
 import { ResultBanner } from "~/components/ResultBanner";
 import { ToolShell } from "~/components/ToolShell";
@@ -115,19 +116,20 @@ export default function CompressImage() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
+            <label className="mb-1.5 block text-xs font-semibold text-[var(--ink-secondary)]">
               Output format
             </label>
-            <select
+            <BasecoatSelect
+              ariaLabel="Output format"
               value={outputFormat}
-              onChange={(e) => setOutputFormat(e.target.value as typeof outputFormat)}
-              className="mt-1.5 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-page)] px-3.5 py-2.5 text-sm"
-            >
-              <option value="jpeg">JPEG (best photo ratio)</option>
-              <option value="webp">WebP (lossless modern)</option>
-              <option value="png">PNG (lossless)</option>
-              <option value="auto">Keep source format</option>
-            </select>
+              onChange={(v) => setOutputFormat(v as typeof outputFormat)}
+              options={[
+                { value: "jpeg", label: "JPEG (best photo ratio)" },
+                { value: "webp", label: "WebP (lossless modern)" },
+                { value: "png", label: "PNG (lossless)" },
+                { value: "auto", label: "Keep source format" },
+              ]}
+            />
           </div>
 
           <div>

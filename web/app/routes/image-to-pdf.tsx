@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { FilePlus2, Loader2 } from "lucide-react";
+import { BasecoatSelect } from "~/components/BasecoatSelect";
 import { FileDropzone } from "~/components/FileDropzone";
 import { ResultBanner } from "~/components/ResultBanner";
 import { ToolShell } from "~/components/ToolShell";
@@ -54,27 +55,29 @@ export default function ImageToPdf() {
 
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
-            <label className="block text-xs font-semibold text-[var(--ink-secondary)]">Page size</label>
-            <select
+            <label className="mb-1.5 block text-xs font-semibold text-[var(--ink-secondary)]">Page size</label>
+            <BasecoatSelect
+              ariaLabel="Page size"
               value={pageSize}
-              onChange={(e) => setPageSize(e.target.value as typeof pageSize)}
-              className="mt-1.5 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-page)] px-3.5 py-2.5 text-sm"
-            >
-              <option value="a4">A4</option>
-              <option value="letter">US Letter</option>
-              <option value="fit">Fit to image</option>
-            </select>
+              onChange={(v) => setPageSize(v as typeof pageSize)}
+              options={[
+                { value: "a4", label: "A4" },
+                { value: "letter", label: "US Letter" },
+                { value: "fit", label: "Fit to image" },
+              ]}
+            />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-[var(--ink-secondary)]">Orientation</label>
-            <select
+            <label className="mb-1.5 block text-xs font-semibold text-[var(--ink-secondary)]">Orientation</label>
+            <BasecoatSelect
+              ariaLabel="Orientation"
               value={orientation}
-              onChange={(e) => setOrientation(e.target.value as typeof orientation)}
-              className="mt-1.5 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-page)] px-3.5 py-2.5 text-sm"
-            >
-              <option value="portrait">Portrait</option>
-              <option value="landscape">Landscape</option>
-            </select>
+              onChange={(v) => setOrientation(v as typeof orientation)}
+              options={[
+                { value: "portrait", label: "Portrait" },
+                { value: "landscape", label: "Landscape" },
+              ]}
+            />
           </div>
           <div>
             <label className="block text-xs font-semibold text-[var(--ink-secondary)]">Margin (pt)</label>

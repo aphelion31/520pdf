@@ -190,28 +190,56 @@ fn search(input: &Path, limit: usize, tmp: &Path) -> Res<(u32, u8, Vec<u8>)> {
         // unplaced/unknown: assume gs already capped it at BASE_DPI
         i.dpi = placed.get(&i.id).copied().unwrap_or(BASE_DPI as f64);
     }
+    let mut best_attempt: Option<(u32, u8, Vec<u8>)> = None;
+    let mut track = |dpi: u32, q: u8, bytes: Vec<u8>| {
+        if best_attempt
+            .as_ref()
+            .is_none_or(|(_, _, prev)| bytes.len() < prev.len())
+        {
+            best_attempt = Some((dpi, q, bytes));
+        }
+    };
+
     let mut imgs = Vec::new();
     for dpi in DPIS {
         imgs = scaled(&base, dpi, false);
-        let fit = best_q(&doc, &imgs, limit, MIN_Q, MAX_Q)?;
-        match &fit {
-            Some((q, _)) => println!("  {dpi} dpi: q{q}"),
-            None => println!("  {dpi} dpi: no fit at q>={MIN_Q}"),
-        }
+        let fit = best_q(&doc, &imgs, limit, MIN_Q, MAX_Q, false)?;
         if let Some((q, bytes)) = fit {
             return Ok((dpi, q, bytes));
         }
+        if let Ok(sample) = build(&doc, &imgs, MIN_Q, false) {
+            track(dpi, MIN_Q, sample);
+        }
     }
-    // best effort: lowest dpi, drop the quality floor; last resort also shrinks graphics
+    // Second pass: drop quality floor on photos while preserving graphics.
     let dpi = *DPIS.last().unwrap();
-    if let Some((q, b)) = best_q(&doc, &imgs, limit, FLOOR_Q, MIN_Q - 1)? {
+    if let Some((q, b)) = best_q(&doc, &imgs, limit, FLOOR_Q, MIN_Q - 1, false)? {
         return Ok((dpi, q, b));
     }
-    let imgs = scaled(&base, dpi, true);
-    match best_q(&doc, &imgs, limit, FLOOR_Q, MAX_Q)? {
-        Some((q, b)) => Ok((dpi, q, b)),
-        None => Ok((dpi, FLOOR_Q, build(&doc, &imgs, FLOOR_Q)?)),
+    if let Ok(sample) = build(&doc, &imgs, FLOOR_Q, false) {
+        track(dpi, FLOOR_Q, sample);
     }
+
+    // Third pass: relax graphics/SMask floor and downscale further.
+    for fallback_dpi in [72u32, 60, 48, 36] {
+        let low_imgs = scaled(&base, fallback_dpi, true);
+        if let Some((q, b)) = best_q(&doc, &low_imgs, limit, FLOOR_Q, MAX_Q, true)? {
+            return Ok((fallback_dpi, q, b));
+        }
+        if let Ok(sample) = build(&doc, &low_imgs, FLOOR_Q, true) {
+            track(fallback_dpi, FLOOR_Q, sample);
+        }
+    }
+
+    // Fourth pass: rasterize complex vector/ICC/transparency pages to compact RGB JPEG PDF pages.
+    if let Some((dpi, q, b)) = gs_raster_fallback(input, limit, tmp)? {
+        if b.len() <= limit {
+            return Ok((dpi, q, b));
+        }
+        track(dpi, q, b);
+    }
+
+    best_attempt.ok_or_else(|| "compression produced no output".into())
 }
 
 /// Downscale photos (and graphics if `all`) from BASE_DPI to `dpi`. Masks never change.
@@ -373,11 +401,12 @@ fn best_q(
     limit: usize,
     mut lo: u8,
     mut hi: u8,
+    relax_gfx: bool,
 ) -> Res<Option<(u8, Vec<u8>)>> {
     let mut found = None;
     while lo <= hi {
         let mid = (lo + hi) / 2;
-        let bytes = build(doc, imgs, mid)?;
+        let bytes = build(doc, imgs, mid, relax_gfx)?;
         if bytes.len() <= limit {
             found = Some((mid, bytes));
             lo = mid + 1;
@@ -397,6 +426,8 @@ fn gs_downsample(src: &Path, dst: &Path, dpi: u32) -> Res<()> {
         "-dNOPAUSE",
         "-dBATCH",
         "-dSAFER",
+        "-dColorConversionStrategy=/RGB",
+        "-dProcessColorModel=/DeviceRGB",
     ])
     .args([
         "-dPassThroughJPEGImages=false",
@@ -426,6 +457,112 @@ fn gs_downsample(src: &Path, dst: &Path, dpi: u32) -> Res<()> {
             out.status
         ))
     }
+}
+
+fn gs_raster_fallback(input: &Path, limit: usize, tmp: &Path) -> Res<Option<(u32, u8, Vec<u8>)>> {
+    let mut smallest: Option<(u32, u8, Vec<u8>)> = None;
+    for (idx, &(dpi, q)) in [
+        (120u32, 65u8),
+        (96, 55),
+        (80, 45),
+        (72, 38),
+        (72, 26),
+        (60, 20),
+        (48, 16),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let rdir = tmp.join(format!("raster-{idx}"));
+        std::fs::create_dir_all(&rdir).map_err(|e| e.to_string())?;
+        let pattern = rdir.join("page-%04d.jpg");
+        let status = Command::new("gs")
+            .args([
+                "-q",
+                "-dNOPAUSE",
+                "-dBATCH",
+                "-dSAFER",
+                "-sDEVICE=jpeg",
+                &format!("-dJPEGQ={q}"),
+                &format!("-r{dpi}"),
+                &format!("-sOutputFile={}", pattern.display()),
+                "-f",
+            ])
+            .arg(input)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !status.status.success() {
+            continue;
+        }
+        let mut page_files: Vec<PathBuf> = std::fs::read_dir(&rdir)
+            .map_err(|e| e.to_string())?
+            .filter_map(|e| e.ok().map(|x| x.path()))
+            .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("jpg"))
+            .collect();
+        page_files.sort();
+        if page_files.is_empty() {
+            continue;
+        }
+        let pdf_bytes = wrap_jpegs_as_pdf(&page_files, dpi)?;
+        if pdf_bytes.len() <= limit {
+            return Ok(Some((dpi, q, pdf_bytes)));
+        }
+        if smallest
+            .as_ref()
+            .is_none_or(|(_, _, prev)| pdf_bytes.len() < prev.len())
+        {
+            smallest = Some((dpi, q, pdf_bytes));
+        }
+    }
+    Ok(smallest)
+}
+
+fn wrap_jpegs_as_pdf(jpegs: &[PathBuf], dpi: u32) -> Res<Vec<u8>> {
+    use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref};
+
+    let mut pdf = Pdf::new();
+    let catalog_id = Ref::new(1);
+    let pages_id = Ref::new(2);
+    pdf.catalog(catalog_id).pages(pages_id);
+
+    let mut page_ids = Vec::with_capacity(jpegs.len());
+    let mut next_id = 3i32;
+    for path in jpegs {
+        let page_id = Ref::new(next_id);
+        let content_id = Ref::new(next_id + 1);
+        let img_id = Ref::new(next_id + 2);
+        next_id += 3;
+        page_ids.push(page_id);
+
+        let raw = std::fs::read(path).map_err(|e| e.to_string())?;
+        let (w_px, h_px) = image::image_dimensions(path).map_err(|e| e.to_string())?;
+        let page_w = (w_px as f32) * 72.0 / (dpi as f32);
+        let page_h = (h_px as f32) * 72.0 / (dpi as f32);
+
+        let mut img = pdf.image_xobject(img_id, &raw);
+        img.filter(pdf_writer::Filter::DctDecode);
+        img.width(w_px as i32);
+        img.height(h_px as i32);
+        img.color_space().device_rgb();
+        img.bits_per_component(8);
+        img.finish();
+
+        let mut content = Content::new();
+        content.save_state();
+        content.transform([page_w, 0.0, 0.0, page_h, 0.0, 0.0]);
+        content.x_object(Name(b"Im1"));
+        content.restore_state();
+        pdf.stream(content_id, &content.finish());
+
+        let mut page = pdf.page(page_id);
+        page.parent(pages_id);
+        page.media_box(Rect::new(0.0, 0.0, page_w, page_h));
+        page.contents(content_id);
+        page.resources().x_objects().pair(Name(b"Im1"), img_id);
+        page.finish();
+    }
+    pdf.pages(pages_id).kids(page_ids).count(jpegs.len() as i32);
+    Ok(pdf.finish())
 }
 
 // ---------- images ----------
@@ -552,11 +689,19 @@ fn jpeg(img: &Img, q: u8) -> Res<Vec<u8>> {
     .map_err(|e| e.to_string())
 }
 
-fn build(base: &Document, imgs: &[Img], q: u8) -> Res<Vec<u8>> {
+fn build(base: &Document, imgs: &[Img], q: u8, relax_gfx: bool) -> Res<Vec<u8>> {
     let mut doc = base.clone();
     for img in imgs {
-        let gfx_q = if img.is_gfx { GFX_Q.max(q) } else { q };
-        let data = jpeg(img, if img.is_mask { MASK_Q } else { gfx_q })?;
+        let eff_q = if relax_gfx {
+            q
+        } else if img.is_mask {
+            MASK_Q
+        } else if img.is_gfx {
+            GFX_Q.max(q)
+        } else {
+            q
+        };
+        let data = jpeg(img, eff_q)?;
         if data.len() >= img.raw_len && !img.resized {
             continue;
         }
@@ -814,6 +959,75 @@ mod tests {
             [
                 0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0x00, 0x01, 0, 2, 0, 1, 0, 1
             ]
+        );
+    }
+
+    #[test]
+    fn heavy_smask_pdf_compresses_within_250kb_target() {
+        use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref};
+
+        let w = 900i32;
+        let h = 600i32;
+        let mut raw_rgb = Vec::with_capacity((w * h * 3) as usize);
+        let mut raw_alpha = Vec::with_capacity((w * h) as usize);
+        let mut seed = 0x1234_5678_9abc_def0u64;
+        for _ in 0..(w * h) {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            raw_rgb.push((seed >> 16) as u8);
+            raw_rgb.push((seed >> 24) as u8);
+            raw_rgb.push((seed >> 32) as u8);
+            raw_alpha.push((seed >> 40) as u8);
+        }
+
+        let mut pdf = Pdf::new();
+        pdf.catalog(Ref::new(1)).pages(Ref::new(2));
+        pdf.pages(Ref::new(2)).kids([Ref::new(3)]).count(1);
+        let mut smask = pdf.image_xobject(Ref::new(6), &raw_alpha);
+        smask.width(w);
+        smask.height(h);
+        smask.color_space().device_gray();
+        smask.bits_per_component(8);
+        smask.finish();
+
+        let mut img = pdf.image_xobject(Ref::new(5), &raw_rgb);
+        img.width(w);
+        img.height(h);
+        img.color_space().device_rgb();
+        img.bits_per_component(8);
+        img.s_mask(Ref::new(6));
+        img.finish();
+
+        let mut content = Content::new();
+        content.save_state();
+        content.transform([595.0, 0.0, 0.0, 400.0, 0.0, 200.0]);
+        content.x_object(Name(b"Im1"));
+        content.restore_state();
+        pdf.stream(Ref::new(4), &content.finish());
+
+        let mut page = pdf.page(Ref::new(3));
+        page.parent(Ref::new(2));
+        page.media_box(Rect::new(0.0, 0.0, 595.0, 842.0));
+        page.contents(Ref::new(4));
+        page.resources().x_objects().pair(Name(b"Im1"), Ref::new(5));
+        page.finish();
+
+        let bytes = pdf.finish();
+        assert!(
+            bytes.len() > 900_000,
+            "fixture should exceed 900 KB, got {}",
+            bytes.len()
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("NPWP.pdf");
+        std::fs::write(&path, &bytes).unwrap();
+
+        let (_dpi, _q, out) = super::compress(&path, 250_000).unwrap();
+        assert!(
+            out.len() <= 250_000,
+            "compressed output {} exceeded 250 KB",
+            out.len()
         );
     }
 }

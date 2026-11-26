@@ -128,6 +128,62 @@ pub fn main() -> std::process::ExitCode {
     })
 }
 
+const MIN_COMPRESS_KB: usize = 250;
+
+fn sanitize_upload_stem(raw_name: Option<&str>, tool: &str) -> String {
+    let raw_stem = raw_name
+        .and_then(|n| n.rsplit(['/', '\\']).next())
+        .and_then(|n| std::path::Path::new(n).file_stem())
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    let mut stem = String::with_capacity(raw_stem.len().min(80));
+    let mut prev_underscore = false;
+    for c in raw_stem.chars() {
+        let ch = if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+            c
+        } else {
+            '_'
+        };
+        if ch == '_' {
+            if !prev_underscore && !stem.is_empty() {
+                stem.push('_');
+            }
+            prev_underscore = true;
+        } else {
+            prev_underscore = false;
+            stem.push(ch);
+        }
+        if stem.len() >= 80 {
+            break;
+        }
+    }
+    let trimmed = stem.trim_matches(['_', '.']).to_string();
+    if !trimmed.is_empty() {
+        trimmed
+    } else if matches!(tool, "resume-builder" | "latex-resume") {
+        "resume".to_string()
+    } else if tool == "equation-to-image" {
+        "equation".to_string()
+    } else {
+        "document".to_string()
+    }
+}
+
+fn format_download_filename(
+    upload_name: Option<&str>,
+    tool: &str,
+    output_path: &std::path::Path,
+) -> String {
+    let stem = sanitize_upload_stem(upload_name, tool);
+    let ext = output_path
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.trim_matches('.'))
+        .filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric()))
+        .unwrap_or("pdf");
+    format!("{stem}_520pdf_{tool}.{ext}").replace(['"', '\r', '\n'], "")
+}
+
 fn has_inline_payload(tool: &str, options: &HashMap<String, String>) -> bool {
     match tool {
         "resume-builder" => options
@@ -149,8 +205,8 @@ fn resolve_compress_target_kb(
         let kb = raw
             .parse::<usize>()
             .map_err(|_| "Invalid target KB".to_string())?;
-        if !(10..=100_000).contains(&kb) {
-            return Err("Target must be 10–100000 KB".into());
+        if !(MIN_COMPRESS_KB..=100_000).contains(&kb) {
+            return Err("Target must be 250–100000 KB".into());
         }
         return Ok(kb);
     }
@@ -158,16 +214,20 @@ fn resolve_compress_target_kb(
         .get("quality_preset")
         .map(|s| s.trim().to_ascii_lowercase())
     {
-        let in_kb = (std::fs::metadata(input).map(|m| m.len()).unwrap_or(100_000) / 1000).max(10);
+        let in_kb = (std::fs::metadata(input).map(|m| m.len()).unwrap_or(250_000) / 1000)
+            .max(MIN_COMPRESS_KB as u64);
         let ratio = match preset.as_str() {
             "low" => 75,
             "medium" => 45,
             "high" => 25,
             _ => return Err("quality_preset must be low, medium or high".into()),
         };
-        return Ok(((in_kb * ratio as u64) / 100).clamp(10, 100_000) as usize);
+        if preset == "high" {
+            return Ok(MIN_COMPRESS_KB);
+        }
+        return Ok(((in_kb * ratio as u64) / 100).clamp(MIN_COMPRESS_KB as u64, 100_000) as usize);
     }
-    Ok(250)
+    Ok(MIN_COMPRESS_KB)
 }
 
 async fn process(
@@ -216,6 +276,7 @@ async fn process(
         }
     };
     let mut inputs = Vec::<PathBuf>::new();
+    let mut first_upload_name: Option<String> = None;
     let mut options = HashMap::new();
     loop {
         let field = match form.next_field().await {
@@ -224,11 +285,14 @@ async fn process(
             Err(e) => return error(e.status(), "Invalid or oversized upload"),
         };
         let name = field.name().unwrap_or("").to_owned();
-        if field.file_name().is_some() {
+        if let Some(orig_name) = field.file_name().map(str::to_owned) {
             if inputs.len() >= 30 {
                 return error(StatusCode::BAD_REQUEST, "Maximum 30 files per job");
             }
-            let ext = std::path::Path::new(field.file_name().unwrap())
+            if first_upload_name.is_none() && !orig_name.trim().is_empty() {
+                first_upload_name = Some(orig_name.clone());
+            }
+            let ext = std::path::Path::new(&orig_name)
                 .extension()
                 .and_then(|s| s.to_str())
                 .unwrap_or("bin")
@@ -336,11 +400,7 @@ async fn process(
         };
         let (path, mime) = result?;
         let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
-        let filename = path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("520pdf-output.pdf")
-            .replace(['"', '\r', '\n'], "");
+        let filename = format_download_filename(first_upload_name.as_deref(), &tool, &path);
         Ok::<_, String>((bytes, mime, filename, compression))
     });
     match tokio::time::timeout(std::time::Duration::from_secs(180), job).await {
@@ -382,6 +442,14 @@ async fn process(
 
 fn field(name: &str, label: &str, kind: &str, value: &str) -> Value {
     json!({"name":name,"label":label,"type":kind,"value":value})
+}
+
+fn select_field(name: &str, label: &str, value: &str, options: &[(&str, &str)]) -> Value {
+    let opts: Vec<Value> = options
+        .iter()
+        .map(|(v, l)| json!({"value": v, "label": l}))
+        .collect();
+    json!({"name": name, "label": label, "type": "select", "value": value, "options": opts})
 }
 
 fn tool_route(id: &str) -> String {
@@ -635,42 +703,96 @@ pub fn catalog() -> Value {
             let fields = match id {
                 "pdf-to-image" => vec![
                     field("pages", "Pages (blank means all)", "text", ""),
-                    field("dpi", "Resolution (DPI)", "number", "150"),
-                    field("format", "Image format (png, jpeg, webp)", "text", "png"),
+                    select_field(
+                        "dpi",
+                        "Resolution (DPI)",
+                        "150",
+                        &[
+                            ("72", "72 DPI (Screen)"),
+                            ("150", "150 DPI (Standard)"),
+                            ("200", "200 DPI (High)"),
+                            ("300", "300 DPI (Print)"),
+                        ],
+                    ),
+                    select_field(
+                        "format",
+                        "Image format",
+                        "png",
+                        &[("png", "PNG"), ("jpeg", "JPEG"), ("webp", "WebP")],
+                    ),
                 ],
                 "compress-image" => vec![
                     field("target_kb", "Target size (KB)", "number", "250"),
                     field("quality", "Quality (1-100)", "number", "80"),
                     field("max_width", "Max width (px)", "number", "1920"),
-                    field("output_format", "Format (auto, jpeg, webp, png)", "text", "auto"),
+                    select_field(
+                        "output_format",
+                        "Format",
+                        "auto",
+                        &[
+                            ("auto", "Keep source format"),
+                            ("jpeg", "JPEG"),
+                            ("webp", "WebP"),
+                            ("png", "PNG"),
+                        ],
+                    ),
                 ],
                 "equation-to-image" => vec![
-                    field("expression", "LaTeX math expression", "textarea", "E = mc^2"),
+                    field(
+                        "expression",
+                        "LaTeX math expression",
+                        "textarea",
+                        "E = mc^2",
+                    ),
                     field("font_size", "Font size", "number", "32"),
                 ],
-                "latex-resume" => vec![
-                    field("latex", "LaTeX source", "textarea", ""),
-                ],
-                "resume-builder" => vec![
-                    field("resume_json", "Resume JSON", "textarea", ""),
-                ],
+                "latex-resume" => vec![field("latex", "LaTeX source", "textarea", "")],
+                "resume-builder" => vec![field("resume_json", "Resume JSON", "textarea", "")],
                 "compress" => vec![json!({
                     "name": "target_kb",
-                    "label": "Target size (KB, 1000 bytes)",
+                    "label": "Target size (KB, min 250)",
                     "type": "number",
                     "value": "250",
-                    "min": 10,
+                    "min": 250,
                     "max": 100000,
                     "step": 1,
-                    "help": "Choose a preset or custom KB target. Smaller targets may reduce image detail."
+                    "help": "Minimum compression target is 250 KB."
                 })],
                 "split" => vec![
                     field("pages", "Pages (example: 1,3-5,2)", "text", "1"),
-                    field("mode", "Split mode (extract, all, ranges)", "text", "extract"),
-                    field("ranges", "Separate output groups (example: 1-2;3-4)", "text", ""),
+                    select_field(
+                        "mode",
+                        "Split mode",
+                        "extract",
+                        &[
+                            ("extract", "Extract selected pages"),
+                            ("all", "Burst all pages to ZIP"),
+                            ("ranges", "Separate range groups"),
+                        ],
+                    ),
+                    field(
+                        "ranges",
+                        "Separate output groups (example: 1-2;3-4)",
+                        "text",
+                        "",
+                    ),
                 ],
-                "organize" => vec![field("pages", "Page order, duplicates allowed (1,3,1)", "text", "1")],
-                "rotate" => vec![field("angle", "Clockwise rotation (90, 180, 270)", "number", "90")],
+                "organize" => vec![field(
+                    "pages",
+                    "Page order, duplicates allowed (1,3,1)",
+                    "text",
+                    "1",
+                )],
+                "rotate" => vec![select_field(
+                    "angle",
+                    "Clockwise rotation",
+                    "90",
+                    &[
+                        ("90", "90° Clockwise"),
+                        ("180", "180° Flip"),
+                        ("270", "270° Counter-clockwise"),
+                    ],
+                )],
                 "crop" => vec![
                     field("x", "Left coordinate (points)", "number", "20"),
                     field("y", "Bottom coordinate (points)", "number", "20"),
@@ -678,12 +800,35 @@ pub fn catalog() -> Value {
                     field("height", "Crop height (points)", "number", "750"),
                 ],
                 "image-to-pdf" => vec![
-                    field("page_size", "Page size (fit, a4, letter)", "text", "a4"),
-                    field("orientation", "Orientation (portrait, landscape)", "text", "portrait"),
+                    select_field(
+                        "page_size",
+                        "Page size",
+                        "a4",
+                        &[
+                            ("a4", "A4"),
+                            ("letter", "US Letter"),
+                            ("fit", "Fit to image"),
+                        ],
+                    ),
+                    select_field(
+                        "orientation",
+                        "Orientation",
+                        "portrait",
+                        &[("portrait", "Portrait"), ("landscape", "Landscape")],
+                    ),
                     field("margin", "Margin (PDF points)", "number", "24"),
                 ],
                 "watermark" | "sign" => vec![
-                    field("text", if id == "sign" { "Signature text" } else { "Watermark text" }, "text", ""),
+                    field(
+                        "text",
+                        if id == "sign" {
+                            "Signature text"
+                        } else {
+                            "Watermark text"
+                        },
+                        "text",
+                        "",
+                    ),
                     field("x", "X position (points)", "number", "36"),
                     field("y", "Y position from bottom (points)", "number", "72"),
                     field("width", "Width (points)", "number", "160"),
@@ -694,23 +839,93 @@ pub fn catalog() -> Value {
                 ],
                 "page-numbers" => vec![
                     field("start", "Start number", "number", "1"),
-                    field("format", "Format ({n}, {total})", "text", "Page {n} of {total}"),
-                    field("position", "Position (left, center, right)", "text", "center"),
+                    field(
+                        "format",
+                        "Format ({n}, {total})",
+                        "text",
+                        "Page {n} of {total}",
+                    ),
+                    select_field(
+                        "position",
+                        "Position",
+                        "center",
+                        &[
+                            ("left", "Bottom Left"),
+                            ("center", "Bottom Center"),
+                            ("right", "Bottom Right"),
+                        ],
+                    ),
                     field("y", "Y from bottom (points)", "number", "24"),
                 ],
                 "protect" => vec![
-                    field("mode", "Mode (visual or password)", "text", "visual"),
-                    field("watermark_text", "Visual watermark text", "text", "CONFIDENTIAL"),
-                    field("remove_metadata", "Strip document metadata", "checkbox", "true"),
+                    select_field(
+                        "mode",
+                        "Protection mode",
+                        "visual",
+                        &[
+                            ("visual", "Visual stamp + strip metadata"),
+                            ("password", "AES-256 password encryption"),
+                        ],
+                    ),
+                    field(
+                        "watermark_text",
+                        "Visual watermark text",
+                        "text",
+                        "CONFIDENTIAL",
+                    ),
+                    field(
+                        "remove_metadata",
+                        "Strip document metadata",
+                        "checkbox",
+                        "true",
+                    ),
                     field("password", "User password (AES-256 mode)", "password", ""),
-                    field("owner_password", "Owner password (must differ)", "password", ""),
-                    field("print", "Printing (full, low, none)", "text", "full"),
-                    field("modify", "Changes (all, annotate, form, assembly, none)", "text", "all"),
-                    field("extract", "Allow extraction (y, n)", "text", "y"),
+                    field(
+                        "owner_password",
+                        "Owner password (must differ)",
+                        "password",
+                        "",
+                    ),
+                    select_field(
+                        "print",
+                        "Printing",
+                        "full",
+                        &[
+                            ("full", "Full resolution"),
+                            ("low", "Low resolution"),
+                            ("none", "Disabled"),
+                        ],
+                    ),
+                    select_field(
+                        "modify",
+                        "Changes allowed",
+                        "all",
+                        &[
+                            ("all", "All modifications"),
+                            ("annotate", "Annotations"),
+                            ("form", "Form filling"),
+                            ("assembly", "Page assembly"),
+                            ("none", "Disabled"),
+                        ],
+                    ),
+                    select_field(
+                        "extract",
+                        "Allow text extraction",
+                        "y",
+                        &[("y", "Yes"), ("n", "No")],
+                    ),
                 ],
                 "unlock" => vec![field("password", "PDF password", "password", "")],
                 "forms" => vec![
-                    field("action", "Action (fill, discover)", "text", "fill"),
+                    select_field(
+                        "action",
+                        "Action",
+                        "fill",
+                        &[
+                            ("fill", "Fill form fields"),
+                            ("discover", "Discover field names JSON"),
+                        ],
+                    ),
                     field("fields", "Field values (JSON object)", "textarea", "{}"),
                 ],
                 "redact" => vec![field(
@@ -720,18 +935,57 @@ pub fn catalog() -> Value {
                     "[]",
                 )],
                 "scan-to-pdf" => vec![
-                    field("language", "OCR language", "text", "eng"),
+                    select_field(
+                        "language",
+                        "OCR language",
+                        "eng",
+                        &[
+                            ("eng", "English (eng)"),
+                            ("ind", "Indonesian (ind)"),
+                            ("vie", "Vietnamese (vie)"),
+                            ("ind+eng", "Indonesian + English (ind+eng)"),
+                        ],
+                    ),
                     field("deskew", "Straighten scanned pages", "checkbox", "true"),
                 ],
                 "summarize" | "translate" => vec![
                     field("target_language", "Translation language", "text", "English"),
                     field("summary_language", "Summary language", "text", "English"),
-                    field("summary_length", "Summary length (short, medium, long)", "text", "medium"),
-                    field("output_format", "Output format (txt, pdf)", "text", "pdf"),
-                    field("bilingual", "Include original text with translation", "checkbox", "false"),
+                    select_field(
+                        "summary_length",
+                        "Summary length",
+                        "medium",
+                        &[("short", "Short"), ("medium", "Medium"), ("long", "Long")],
+                    ),
+                    select_field(
+                        "output_format",
+                        "Output format",
+                        "pdf",
+                        &[("pdf", "PDF"), ("txt", "Plain Text (.txt)")],
+                    ),
+                    field(
+                        "bilingual",
+                        "Include original text with translation",
+                        "checkbox",
+                        "false",
+                    ),
                     field("ocr", "OCR scanned text before AI", "checkbox", "false"),
-                    field("ocr_language", "OCR language", "text", "eng"),
-                    field("consent", "I consent to send extracted document text to the configured AI provider", "checkbox", "false"),
+                    select_field(
+                        "ocr_language",
+                        "OCR language",
+                        "eng",
+                        &[
+                            ("eng", "English (eng)"),
+                            ("ind", "Indonesian (ind)"),
+                            ("ind+eng", "Indonesian + English"),
+                        ],
+                    ),
+                    field(
+                        "consent",
+                        "I consent to send extracted document text to the configured AI provider",
+                        "checkbox",
+                        "false",
+                    ),
                 ],
                 _ => vec![],
             };
@@ -830,5 +1084,44 @@ mod tests {
         assert_eq!(me_body["algorithm"], "argon2id");
 
         handle.abort();
+    }
+
+    #[test]
+    fn filename_and_min_compress_target_enforce_conventions() {
+        assert_eq!(
+            format_download_filename(
+                Some("NPWP.pdf"),
+                "compress",
+                std::path::Path::new("out.pdf")
+            ),
+            "NPWP_520pdf_compress.pdf"
+        );
+        assert_eq!(
+            format_download_filename(
+                Some("C:\\Users\\test\\My NPWP (2026).pdf"),
+                "merge",
+                std::path::Path::new("merged.pdf")
+            ),
+            "My_NPWP_2026_520pdf_merge.pdf"
+        );
+        assert_eq!(
+            format_download_filename(None, "resume-builder", std::path::Path::new("r.pdf")),
+            "resume_520pdf_resume-builder.pdf"
+        );
+
+        let mut opts = HashMap::new();
+        opts.insert("target_kb".into(), "100".into());
+        assert!(resolve_compress_target_kb(std::path::Path::new("NPWP.pdf"), &opts).is_err());
+        opts.insert("target_kb".into(), "250".into());
+        assert_eq!(
+            resolve_compress_target_kb(std::path::Path::new("NPWP.pdf"), &opts).unwrap(),
+            250
+        );
+        let mut preset_opts = HashMap::new();
+        preset_opts.insert("quality_preset".into(), "high".into());
+        assert_eq!(
+            resolve_compress_target_kb(std::path::Path::new("NPWP.pdf"), &preset_opts).unwrap(),
+            250
+        );
     }
 }

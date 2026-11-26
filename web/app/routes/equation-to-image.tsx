@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import katex from "katex";
 import { toJpeg, toPng } from "html-to-image";
 import { Check, Copy, Download, Sigma } from "lucide-react";
+import { BasecoatSelect } from "~/components/BasecoatSelect";
 import { ToolShell } from "~/components/ToolShell";
 
 const EXAMPLES = [
@@ -147,7 +148,7 @@ export default function EquationToImage() {
     if (!exported) return;
     const link = document.createElement("a");
     link.href = exported.url;
-    link.download = `520pdf-equation.${format}`;
+    link.download = `equation_520pdf_equation-to-image.${format}`;
     document.body.append(link);
     link.click();
     link.remove();
@@ -234,29 +235,37 @@ export default function EquationToImage() {
             ))}
           </div>
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-[0.85fr_1.15fr_0.85fr_1.15fr]">
             <div>
-              <label className="block text-[11px] font-semibold text-[var(--ink-muted)]">Format</label>
-              <select
+              <label className="mb-1 block text-[11px] font-semibold text-[var(--ink-muted)]">
+                Format
+              </label>
+              <BasecoatSelect
+                size="sm"
+                ariaLabel="Equation image format"
                 value={format}
-                onChange={(e) => setFormat(e.target.value as "png" | "jpg")}
-                className="mt-1 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-page)] px-2.5 py-2 text-xs"
-              >
-                <option value="png">PNG</option>
-                <option value="jpg">JPG</option>
-              </select>
+                onChange={(v) => setFormat(v as "png" | "jpg")}
+                options={[
+                  { value: "png", label: "PNG" },
+                  { value: "jpg", label: "JPG" },
+                ]}
+              />
             </div>
             <div>
-              <label className="block text-[11px] font-semibold text-[var(--ink-muted)]">Scale</label>
-              <select
-                value={scale}
-                onChange={(e) => setScale(Number(e.target.value))}
-                className="mt-1 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-page)] px-2.5 py-2 text-xs"
-              >
-                <option value={2}>2× HD</option>
-                <option value={3}>3× Crisp</option>
-                <option value={4}>4× Print</option>
-              </select>
+              <label className="mb-1 block text-[11px] font-semibold text-[var(--ink-muted)]">
+                Scale
+              </label>
+              <BasecoatSelect
+                size="sm"
+                ariaLabel="Render resolution scale"
+                value={String(scale)}
+                onChange={(v) => setScale(Number(v))}
+                options={[
+                  { value: "2", label: "2× HD" },
+                  { value: "3", label: "3× Crisp" },
+                  { value: "4", label: "4× Print" },
+                ]}
+              />
             </div>
             <div>
               <label className="block text-[11px] font-semibold text-[var(--ink-muted)]">Color</label>

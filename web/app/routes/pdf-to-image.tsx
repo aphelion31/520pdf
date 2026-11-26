@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Image as ImageIcon, Loader2 } from "lucide-react";
+import { BasecoatSelect } from "~/components/BasecoatSelect";
 import { FileDropzone } from "~/components/FileDropzone";
 import { ResultBanner } from "~/components/ResultBanner";
 import { ToolShell } from "~/components/ToolShell";
@@ -69,34 +70,36 @@ export default function PdfToImage() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
+            <label className="mb-1.5 block text-xs font-semibold text-[var(--ink-secondary)]">
               Resolution (DPI)
             </label>
-            <select
-              value={dpi}
-              onChange={(e) => setDpi(Number(e.target.value))}
-              className="mt-1.5 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-page)] px-3.5 py-2.5 text-sm"
-            >
-              <option value={72}>72 DPI (Screen)</option>
-              <option value={150}>150 DPI (Standard)</option>
-              <option value={200}>200 DPI (High)</option>
-              <option value={300}>300 DPI (Print)</option>
-            </select>
+            <BasecoatSelect
+              ariaLabel="Resolution (DPI)"
+              value={String(dpi)}
+              onChange={(v) => setDpi(Number(v))}
+              options={[
+                { value: "72", label: "72 DPI (Screen)" },
+                { value: "150", label: "150 DPI (Standard)" },
+                { value: "200", label: "200 DPI (High)" },
+                { value: "300", label: "300 DPI (Print)" },
+              ]}
+            />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
+            <label className="mb-1.5 block text-xs font-semibold text-[var(--ink-secondary)]">
               Format
             </label>
-            <select
+            <BasecoatSelect
+              ariaLabel="Output image format"
               value={format}
-              onChange={(e) => setFormat(e.target.value as typeof format)}
-              className="mt-1.5 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-page)] px-3.5 py-2.5 text-sm"
-            >
-              <option value="png">PNG</option>
-              <option value="jpeg">JPEG</option>
-              <option value="webp">WebP</option>
-            </select>
+              onChange={(v) => setFormat(v as typeof format)}
+              options={[
+                { value: "png", label: "PNG (Lossless)" },
+                { value: "jpeg", label: "JPEG (Compact)" },
+                { value: "webp", label: "WebP (Modern)" },
+              ]}
+            />
           </div>
         </div>
 

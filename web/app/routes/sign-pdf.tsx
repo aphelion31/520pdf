@@ -1,11 +1,21 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Eraser, Loader2, PenTool, Upload } from "lucide-react";
+import { ChevronLeft, ChevronRight, Eraser, Loader2, Move, PenTool, Upload } from "lucide-react";
 import { FileDropzone } from "~/components/FileDropzone";
 import { ResultBanner } from "~/components/ResultBanner";
 import { ToolShell } from "~/components/ToolShell";
 import { useFileVault } from "~/context/file-vault";
 import { runTool, type ToolResponse } from "~/lib/api";
 import { renderSinglePage, type PdfPageRender } from "~/lib/pdfjs";
+
+interface DragOp {
+  mode: "move" | "resize";
+  startX: number;
+  startY: number;
+  origX: number;
+  origY: number;
+  origW: number;
+  origH: number;
+}
 
 export default function SignPdf() {
   const { match } = useFileVault();
@@ -14,6 +24,9 @@ export default function SignPdf() {
     return first ? [first.file] : [];
   });
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const previewBoxRef = useRef<HTMLDivElement>(null);
+  const dragOpRef = useRef<DragOp | null>(null);
+
   const [drawing, setDrawing] = useState(false);
   const [penColor, setPenColor] = useState("#111318");
   const [penWidth, setPenWidth] = useState(2.5);
@@ -36,7 +49,7 @@ export default function SignPdf() {
       return;
     }
     let cancelled = false;
-    renderSinglePage(f, targetPage, 460)
+    renderSinglePage(f, targetPage, 480)
       .then((p) => {
         if (!cancelled) setPagePreview(p);
       })
@@ -47,6 +60,10 @@ export default function SignPdf() {
       cancelled = true;
     };
   }, [files, targetPage]);
+
+  const pageW = pagePreview?.width || 595;
+  const pageH = pagePreview?.height || 842;
+  const totalPages = pagePreview?.totalPages || 1;
 
   const point = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current!;
@@ -108,6 +125,59 @@ export default function SignPdf() {
     setSigDataUrl(canvas.toDataURL("image/png"));
   };
 
+  const beginBoxDrag = (mode: "move" | "resize", e: React.PointerEvent<HTMLElement>) => {
+    e.stopPropagation();
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragOpRef.current = {
+      mode,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: xPt,
+      origY: yPt,
+      origW: wPt,
+      origH: hPt,
+    };
+  };
+
+  const moveBoxDrag = (e: React.PointerEvent<HTMLElement>) => {
+    const op = dragOpRef.current;
+    const box = previewBoxRef.current;
+    if (!op || !box) return;
+    const rect = box.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const dxPt = ((e.clientX - op.startX) / rect.width) * pageW;
+    const dyPt = ((e.clientY - op.startY) / rect.height) * pageH;
+
+    if (op.mode === "move") {
+      const nextX = Math.max(0, Math.min(pageW - op.origW, op.origX + dxPt));
+      const nextY = Math.max(0, Math.min(pageH - op.origH, op.origY - dyPt));
+      setXPt(Math.round(nextX));
+      setYPt(Math.round(nextY));
+    } else {
+      const nextW = Math.max(24, Math.min(pageW - op.origX, op.origW + dxPt));
+      const nextH = Math.max(16, Math.min(op.origY + op.origH, op.origH + dyPt));
+      const nextY = Math.max(0, op.origY + (op.origH - nextH));
+      setWPt(Math.round(nextW));
+      setHPt(Math.round(nextH));
+      setYPt(Math.round(nextY));
+    }
+  };
+
+  const endBoxDrag = () => {
+    dragOpRef.current = null;
+  };
+
+  const handlePageClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!previewBoxRef.current || !(sigDataUrl || sigText.trim())) return;
+    const rect = previewBoxRef.current.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const clickXPt = ((e.clientX - rect.left) / rect.width) * pageW;
+    const clickYPtFromBottom = (1 - (e.clientY - rect.top) / rect.height) * pageH;
+    setXPt(Math.round(Math.max(0, Math.min(pageW - wPt, clickXPt - wPt / 2))));
+    setYPt(Math.round(Math.max(0, Math.min(pageH - hPt, clickYPtFromBottom - hPt / 2))));
+  };
+
   const handleApply = async () => {
     if (!files[0]) return;
     setBusy(true);
@@ -138,13 +208,10 @@ export default function SignPdf() {
     }
   };
 
-  const pageW = pagePreview?.width || 595;
-  const pageH = pagePreview?.height || 842;
-
   return (
     <ToolShell
       title="Sign PDF"
-      description="Draw a visible signature, upload an image, or type text and place it accurately on your PDF page."
+      description="Draw a visible signature, upload an image, or type text and drag it into position on your PDF page."
       category="Edit"
     >
       <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
@@ -154,6 +221,7 @@ export default function SignPdf() {
             files={files}
             onFilesChange={(next) => {
               setFiles(next);
+              setTargetPage(1);
               setResult(null);
             }}
           />
@@ -278,12 +346,47 @@ export default function SignPdf() {
         </div>
 
         <div className="surface-card flex flex-col items-center rounded-2xl p-6">
-          <p className="mb-3 self-start text-xs font-semibold tracking-wider text-[var(--ink-muted)] uppercase">
-            Placement Preview (Page {targetPage})
-          </p>
-          <div className="relative inline-block overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-white">
+          <div className="mb-3 flex w-full items-center justify-between gap-2">
+            <p className="text-xs font-semibold tracking-wider text-[var(--ink-muted)] uppercase">
+              Placement Preview · Page {targetPage}
+              {totalPages > 1 ? ` / ${totalPages}` : ""}
+            </p>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={targetPage <= 1}
+                  onClick={() => setTargetPage((p) => Math.max(1, p - 1))}
+                  aria-label="Previous page"
+                  className="rounded-lg border border-[var(--border-subtle)] p-1 disabled:opacity-40"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  disabled={targetPage >= totalPages}
+                  onClick={() => setTargetPage((p) => Math.min(totalPages, p + 1))}
+                  aria-label="Next page"
+                  className="rounded-lg border border-[var(--border-subtle)] p-1 disabled:opacity-40"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div
+            ref={previewBoxRef}
+            onClick={handlePageClick}
+            className="relative inline-block select-none overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-white shadow-sm"
+          >
             {pagePreview ? (
-              <img src={pagePreview.dataUrl} alt={`Page ${targetPage}`} className="max-h-[460px] w-auto" />
+              <img
+                src={pagePreview.dataUrl}
+                alt={`Page ${targetPage}`}
+                draggable={false}
+                className="block max-h-[480px] w-auto"
+              />
             ) : (
               <div className="grid h-[420px] w-[300px] place-items-center text-xs text-neutral-400">
                 Upload a PDF to preview signature placement
@@ -291,7 +394,13 @@ export default function SignPdf() {
             )}
             {(sigDataUrl || sigText.trim()) && (
               <div
-                className="pointer-events-none absolute border border-dashed border-[#e63228]/70 bg-[#e63228]/5 flex items-center justify-center"
+                data-testid="sig-drag-box"
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => beginBoxDrag("move", e)}
+                onPointerMove={moveBoxDrag}
+                onPointerUp={endBoxDrag}
+                onPointerCancel={endBoxDrag}
+                className="group absolute flex cursor-grab touch-none items-center justify-center rounded border-2 border-dashed border-[#e63228]/80 bg-[#e63228]/5 active:cursor-grabbing"
                 style={{
                   left: `${Math.max(0, Math.min(95, (xPt / pageW) * 100))}%`,
                   bottom: `${Math.max(0, Math.min(95, (yPt / pageH) * 100))}%`,
@@ -300,13 +409,36 @@ export default function SignPdf() {
                 }}
               >
                 {sigDataUrl ? (
-                  <img src={sigDataUrl} alt="Signature preview" className="h-full w-full object-contain" />
+                  <img
+                    src={sigDataUrl}
+                    alt="Signature preview"
+                    draggable={false}
+                    className="h-full w-full object-contain"
+                  />
                 ) : (
-                  <span className="truncate px-1 text-xs font-semibold text-neutral-900">{sigText}</span>
+                  <span className="truncate px-1 text-xs font-semibold text-neutral-900">
+                    {sigText}
+                  </span>
                 )}
+                <span className="pointer-events-none absolute -top-2.5 left-1 hidden items-center gap-0.5 rounded bg-[#e63228] px-1 py-0.5 text-[9px] font-bold text-white group-hover:inline-flex">
+                  <Move className="h-2.5 w-2.5" /> Drag
+                </span>
+                <div
+                  data-testid="sig-resize-handle"
+                  title="Drag to resize"
+                  onPointerDown={(e) => beginBoxDrag("resize", e)}
+                  onPointerMove={moveBoxDrag}
+                  onPointerUp={endBoxDrag}
+                  onPointerCancel={endBoxDrag}
+                  className="absolute -right-1.5 -bottom-1.5 h-3.5 w-3.5 cursor-nwse-resize rounded-full bg-[#e63228] ring-2 ring-white"
+                />
               </div>
             )}
           </div>
+
+          <p className="mt-3 text-center text-[11px] text-[var(--ink-muted)]">
+            Drag signature to reposition · drag bottom-right dot to resize · click anywhere on page to place
+          </p>
         </div>
       </div>
     </ToolShell>

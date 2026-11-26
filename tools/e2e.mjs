@@ -179,14 +179,27 @@ try {
   await page.mouse.move(box.x + 190, box.y + 80);
   await page.mouse.move(box.x + 280, box.y + 50);
   await page.mouse.up();
+  const dragBox = page.getByTestId("sig-drag-box");
+  await dragBox.waitFor();
+  const db = await dragBox.boundingBox();
+  assert.ok(db, "draggable signature overlay missing");
+  await page.mouse.move(db.x + db.width / 2, db.y + db.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(db.x + db.width / 2 + 85, db.y + db.height / 2 - 60, { steps: 5 });
+  await page.mouse.up();
   await page.getByRole("button", { name: "Sign & Download PDF" }).click();
-  await page.getByText(/Ready:/).waitFor({ timeout: 15000 });
+  await page.getByText(/Ready: sample-resume_520pdf_sign\.pdf/).waitFor({ timeout: 15000 });
   await page.waitForTimeout(300);
   await page.screenshot({ path: path.join(SHOT_DIR, "sign-pdf.png"), fullPage: false });
   console.log("Captured sign-pdf.png");
 
-  // 5. Equation to Image (live KaTeX + PNG render)
+  // 5. Equation to Image (BasecoatSelect + live KaTeX + PNG render)
   await page.goto(`${BASE}/equation-to-image`, { waitUntil: "networkidle" });
+  const scaleSelect = page.getByRole("combobox", { name: "Render resolution scale" });
+  await scaleSelect.click();
+  await page.getByRole("option", { name: "4× Print" }).click();
+  await scaleSelect.click();
+  await page.getByRole("option", { name: "3× Crisp" }).click();
   await page.getByRole("button", { name: "Schrödinger" }).click();
   await page.getByRole("button", { name: /Render PNG Image/ }).click();
   await page.getByText(/Exported \d+ × \d+ px/).waitFor({ timeout: 10000 });

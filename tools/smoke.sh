@@ -93,12 +93,17 @@ TEX
 post_tool latex-resume "$TMP/latex.pdf" -F "files=@$TMP/resume.tex"
 head -c 5 "$TMP/latex.pdf" | grep -q '%PDF-'
 
-# 3. Merge, Split, Compress, Watermark, Visual Protect, Sign
-post_tool merge "$TMP/merged.pdf" -F "files=@$TMP/resume.pdf" -F "files=@$TMP/latex.pdf"
+# 3. Merge, Split, Compress, Watermark, Visual Protect, Sign + filename & 250 KB floor check
+cp "$TMP/resume.pdf" "$TMP/NPWP.pdf"
+post_tool merge "$TMP/merged.pdf" -F "files=@$TMP/NPWP.pdf" -F "files=@$TMP/latex.pdf"
+grep -qi 'filename="NPWP_520pdf_merge.pdf"' "$TMP/headers"
 post_tool split "$TMP/split.pdf" -F "files=@$TMP/merged.pdf" -F "pages=1" -F "mode=extract"
 post_tool split "$TMP/split.zip" -F "files=@$TMP/merged.pdf" -F "mode=all"
-post_tool compress "$TMP/compressed.pdf" -F "files=@$TMP/merged.pdf" -F "quality_preset=medium" -F "remove_metadata=true"
+post_tool compress "$TMP/compressed.pdf" -F "files=@$TMP/NPWP.pdf" -F "quality_preset=high" -F "remove_metadata=true"
 grep -qi '^x-compress-status:' "$TMP/headers"
+grep -qi 'filename="NPWP_520pdf_compress.pdf"' "$TMP/headers"
+TOO_LOW_CODE=$(curl -sS -o /dev/null -w '%{http_code}' -F "files=@$TMP/NPWP.pdf" -F "target_kb=100" "$BASE/api/tools/compress")
+test "$TOO_LOW_CODE" = "422"
 post_tool watermark "$TMP/watermark.pdf" -F "files=@$TMP/resume.pdf" -F "text=CONFIDENTIAL"
 post_tool protect "$TMP/protected.pdf" -F "files=@$TMP/resume.pdf" -F "mode=visual" -F "watermark_text=PRIVATE" -F "remove_metadata=true"
 post_tool sign "$TMP/signed.pdf" -F "files=@$TMP/resume.pdf" -F "text=Signed by Nadia"

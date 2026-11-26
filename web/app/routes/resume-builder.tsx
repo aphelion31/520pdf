@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Download, Loader2, Plus, Trash2 } from "lucide-react";
+import { BasecoatSelect } from "~/components/BasecoatSelect";
 import { ResultBanner } from "~/components/ResultBanner";
 import { ToolShell } from "~/components/ToolShell";
 import { runTool, type ToolResponse } from "~/lib/api";
@@ -377,22 +378,26 @@ export default function ResumeBuilder() {
                     }
                     className="flex-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-page)] px-3 py-1.5 text-sm"
                   />
-                  <select
-                    value={sk.level}
-                    onChange={(e) =>
-                      setSkills((list) =>
-                        list.map((x) =>
-                          x.id === sk.id ? { ...x, level: e.target.value as Skill["level"] } : x,
-                        ),
-                      )
-                    }
-                    className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-page)] px-2.5 py-1.5 text-xs"
-                  >
-                    <option value="Beginner">Beginner</option>
-                    <option value="Intermediate">Intermediate</option>
-                    <option value="Advanced">Advanced</option>
-                    <option value="Expert">Expert</option>
-                  </select>
+                  <div className="w-36 shrink-0">
+                    <BasecoatSelect
+                      size="sm"
+                      ariaLabel={`Skill level for ${sk.name}`}
+                      value={sk.level}
+                      onChange={(val) =>
+                        setSkills((list) =>
+                          list.map((x) =>
+                            x.id === sk.id ? { ...x, level: val as Skill["level"] } : x,
+                          ),
+                        )
+                      }
+                      options={[
+                        { value: "Beginner", label: "Beginner" },
+                        { value: "Intermediate", label: "Intermediate" },
+                        { value: "Advanced", label: "Advanced" },
+                        { value: "Expert", label: "Expert" },
+                      ]}
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={() => setSkills((list) => list.filter((x) => x.id !== sk.id))}

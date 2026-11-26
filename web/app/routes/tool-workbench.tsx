@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router";
 import { Loader2, Play, RotateCw } from "lucide-react";
+import { BasecoatSelect } from "~/components/BasecoatSelect";
 import { FileDropzone } from "~/components/FileDropzone";
 import { ResultBanner } from "~/components/ResultBanner";
 import { ToolShell } from "~/components/ToolShell";
@@ -227,6 +228,24 @@ export default function ToolWorkbench() {
                       value={String(values[f.name] ?? "")}
                       onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
                       className="mt-1.5 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-page)] p-3 font-mono text-xs"
+                    />
+                  </div>
+                );
+              }
+              if (type === "select" || (f.options && f.options.length > 0)) {
+                const selectOpts = (f.options ?? []).map((o) =>
+                  typeof o === "string" ? { value: o, label: o } : o,
+                );
+                return (
+                  <div key={f.name}>
+                    <label className="mb-1.5 block text-xs font-semibold text-[var(--ink-secondary)]">
+                      {f.label || f.name}
+                    </label>
+                    <BasecoatSelect
+                      ariaLabel={f.label || f.name}
+                      value={String(values[f.name] ?? selectOpts[0]?.value ?? "")}
+                      onChange={(val) => setValues((v) => ({ ...v, [f.name]: val }))}
+                      options={selectOpts}
                     />
                   </div>
                 );
