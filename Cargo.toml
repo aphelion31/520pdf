@@ -1,6 +1,6 @@
 [package]
 name = "pdf520"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "520pdf: single-binary Rust Axum + React Router PDF workbench & rewrite of iHatePDF"
 license = "MIT"
