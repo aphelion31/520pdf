@@ -127,13 +127,18 @@ try {
     if (res.status() >= 400) failedRequests.push(`${res.status()} ${res.url()}`);
   });
 
-  // 1. Home + DropHero with vault carry-over
+  // 1. Home + DropHero with vault carry-over + tools grid icons
   await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
   await page.locator('input[type="file"]').first().setInputFiles([samplePdfPath, samplePngPath]);
   await page.getByText("2 files in File Vault").waitFor();
   await page.waitForTimeout(300);
   await page.screenshot({ path: path.join(SHOT_DIR, "home.png"), fullPage: false });
   console.log("Captured home.png");
+
+  await page.locator("#tools").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: path.join(SHOT_DIR, "tools-grid.png"), fullPage: false });
+  console.log("Captured tools-grid.png");
 
   // 1b. Login page (Argon2id workspace sign-in)
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
@@ -215,7 +220,7 @@ try {
   assert.deepEqual(consoleErrors, [], `console errors: ${consoleErrors.join("; ")}`);
   assert.deepEqual(pageErrors, [], `page errors: ${pageErrors.join("; ")}`);
   assert.deepEqual(failedRequests, [], `failed requests: ${failedRequests.join("; ")}`);
-  console.log("PASS: all 8 retina screenshots + zero console/page/network errors + mobile responsive");
+  console.log("PASS: all 9 retina screenshots + zero console/page/network errors + mobile responsive");
 } finally {
   await browser.close();
 }

@@ -1,15 +1,25 @@
 import React from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
+import { TOOLS_CATALOG } from "~/lib/catalog";
+import { CATEGORY_META, ToolIconBadge } from "~/lib/tool-icons";
 
 interface ToolShellProps {
   title: string;
   description: string;
   category: string;
+  toolId?: string;
   children: React.ReactNode;
 }
 
-export function ToolShell({ title, description, category, children }: ToolShellProps) {
+export function ToolShell({ title, description, category, toolId, children }: ToolShellProps) {
+  const { pathname } = useLocation();
+  const matchedTool = TOOLS_CATALOG.find(
+    (item) => (toolId && item.id === toolId) || item.route === pathname,
+  );
+  const pillClass =
+    matchedTool ? CATEGORY_META[matchedTool.category].pillClass : "bg-[var(--accent-soft)] text-[var(--accent)]";
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -24,14 +34,21 @@ export function ToolShell({ title, description, category, children }: ToolShellP
         </span>
       </div>
 
-      <div className="mb-6">
-        <span className="inline-block rounded-full bg-[var(--accent-soft)] px-2.5 py-0.5 text-[11px] font-bold tracking-wider text-[var(--accent)] uppercase">
-          {category}
-        </span>
-        <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-[var(--ink-primary)]">
-          {title}
-        </h1>
-        <p className="mt-1.5 text-sm text-[var(--ink-secondary)]">{description}</p>
+      <div className="mb-6 flex items-start gap-4">
+        {matchedTool && (
+          <ToolIconBadge toolId={matchedTool.id} category={matchedTool.category} size="lg" />
+        )}
+        <div className="min-w-0 flex-1">
+          <span
+            className={`inline-block rounded-full px-2.5 py-0.5 text-[11px] font-bold tracking-wider uppercase ${pillClass}`}
+          >
+            {category}
+          </span>
+          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-[var(--ink-primary)]">
+            {title}
+          </h1>
+          <p className="mt-1.5 text-sm text-[var(--ink-secondary)]">{description}</p>
+        </div>
       </div>
 
       {children}

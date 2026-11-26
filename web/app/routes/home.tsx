@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { ArrowRight, Search } from "lucide-react";
+import { ArrowRight, Cpu, Layers, Search, Zap } from "lucide-react";
 import { DropHero } from "~/components/DropHero";
 import { CATEGORIES, TOOLS_CATALOG } from "~/lib/catalog";
+import { CATEGORY_META, ToolIconBadge } from "~/lib/tool-icons";
 
 export default function Home() {
   const [query, setQuery] = useState("");
@@ -53,19 +54,21 @@ export default function Home() {
         <div className="mt-5 flex flex-wrap gap-2" role="group" aria-label="Filter by category">
           {CATEGORIES.map((cat) => {
             const active = category === cat;
+            const CatIcon = CATEGORY_META[cat].icon;
             return (
               <button
                 key={cat}
                 type="button"
                 aria-pressed={active}
                 onClick={() => setCategory(cat)}
-                className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors ${
                   active
                     ? "bg-[var(--ink-primary)] text-[var(--bg-surface)]"
                     : "border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--ink-secondary)] hover:bg-[var(--bg-subtle)]"
                 }`}
               >
-                {cat}
+                <CatIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span>{cat}</span>
               </button>
             );
           })}
@@ -81,15 +84,20 @@ export default function Home() {
               }`}
             >
               <div>
-                <div className="mb-3 flex items-center justify-between gap-2">
-                  <span className="rounded-full bg-[var(--accent-soft)] px-2.5 py-0.5 text-[10px] font-bold tracking-wider text-[var(--accent)] uppercase">
-                    {tool.category}
-                  </span>
-                  {tool.core && (
-                    <span className="rounded-full border border-[var(--border-subtle)] px-2 py-0.5 text-[10px] font-semibold text-[var(--ink-muted)]">
-                      Core
+                <div className="mb-3 flex items-start justify-between gap-2">
+                  <ToolIconBadge toolId={tool.id} category={tool.category} size="md" />
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wider uppercase ${CATEGORY_META[tool.category].pillClass}`}
+                    >
+                      {tool.category}
                     </span>
-                  )}
+                    {tool.core && (
+                      <span className="rounded-full border border-[var(--border-subtle)] px-2 py-0.5 text-[10px] font-semibold text-[var(--ink-muted)]">
+                        Core
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <h3 className="text-base font-bold text-[var(--ink-primary)] group-hover:text-[var(--accent)]">
                   {tool.name}
@@ -114,17 +122,25 @@ export default function Home() {
 
         <div className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-3">
           {[
-            { value: "1 binary", label: "Axum 0.8 + React Router 8 SPA" },
-            { value: "28 tools", label: "12 core local engines + 16 workbench tools" },
-            { value: "0 MB", label: "Node / Python needed for core tools" },
-          ].map((stat) => (
-            <div key={stat.label} className="surface-card flex items-center gap-4 rounded-2xl px-5 py-4">
-              <span className="text-2xl font-extrabold text-[var(--accent)] tabular-nums">
-                {stat.value}
-              </span>
-              <span className="text-xs text-[var(--ink-secondary)]">{stat.label}</span>
-            </div>
-          ))}
+            { value: "1 binary", label: "Axum 0.8 + React Router 8 SPA", icon: Cpu },
+            { value: "28 tools", label: "12 core local engines + 16 workbench tools", icon: Layers },
+            { value: "0 MB", label: "Node / Python needed for core tools", icon: Zap },
+          ].map((stat) => {
+            const StatIcon = stat.icon;
+            return (
+              <div key={stat.label} className="surface-card flex items-center gap-3.5 rounded-2xl px-5 py-4">
+                <span className="inline-grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)]">
+                  <StatIcon className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <div>
+                  <div className="text-xl font-extrabold text-[var(--accent)] tabular-nums">
+                    {stat.value}
+                  </div>
+                  <div className="text-xs text-[var(--ink-secondary)]">{stat.label}</div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </section>
     </div>

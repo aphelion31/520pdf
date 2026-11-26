@@ -3,20 +3,21 @@ import { Link } from "react-router";
 import { ArrowRight, FileText, Image as ImageIcon, ShieldCheck, Sparkles, UploadCloud, X } from "lucide-react";
 import { useFileVault } from "~/context/file-vault";
 import { formatBytes } from "~/lib/api";
+import { getToolIcon } from "~/lib/tool-icons";
 
 const PDF_QUICK_ACTIONS = [
-  { label: "Compress PDF", to: "/compress-pdf" },
-  { label: "Split PDF", to: "/split-pdf" },
-  { label: "PDF to Image", to: "/pdf-to-image" },
-  { label: "Merge PDFs", to: "/merge-pdfs" },
-  { label: "Watermark", to: "/watermark-pdf" },
-  { label: "Protect", to: "/lock-pdf" },
-  { label: "Sign PDF", to: "/sign-pdf" },
+  { toolId: "compress", label: "Compress PDF", to: "/compress-pdf" },
+  { toolId: "split", label: "Split PDF", to: "/split-pdf" },
+  { toolId: "pdf-to-image", label: "PDF to Image", to: "/pdf-to-image" },
+  { toolId: "merge", label: "Merge PDFs", to: "/merge-pdfs" },
+  { toolId: "watermark", label: "Watermark", to: "/watermark-pdf" },
+  { toolId: "protect", label: "Protect", to: "/lock-pdf" },
+  { toolId: "sign", label: "Sign PDF", to: "/sign-pdf" },
 ];
 
 const IMAGE_QUICK_ACTIONS = [
-  { label: "Compress Image", to: "/compress-image" },
-  { label: "Images to PDF", to: "/image-to-pdf" },
+  { toolId: "compress-image", label: "Compress Image", to: "/compress-image" },
+  { toolId: "image-to-pdf", label: "Images to PDF", to: "/image-to-pdf" },
 ];
 
 export function DropHero() {
@@ -168,16 +169,20 @@ export function DropHero() {
                 Jump directly to a tool
               </p>
               <div className="flex flex-wrap gap-2">
-                {quickActions.map((act) => (
-                  <Link
-                    key={act.to}
-                    to={act.to}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-page)] px-3.5 py-1.5 text-xs font-semibold text-[var(--ink-primary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
-                  >
-                    {act.label}
-                    <ArrowRight className="h-3 w-3" />
-                  </Link>
-                ))}
+                {quickActions.map((act) => {
+                  const Icon = getToolIcon(act.toolId);
+                  return (
+                    <Link
+                      key={act.to}
+                      to={act.to}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-page)] px-3.5 py-1.5 text-xs font-semibold text-[var(--ink-primary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                    >
+                      <Icon className="h-3.5 w-3.5 text-[var(--accent)]" aria-hidden="true" />
+                      {act.label}
+                      <ArrowRight className="h-3 w-3" />
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           )}

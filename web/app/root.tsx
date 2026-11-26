@@ -10,7 +10,19 @@ import {
   useLocation,
 } from "react-router";
 import type { Route } from "./+types/root";
-import { FolderOpen, LogIn, Moon, Sparkles, Sun, UploadCloud } from "lucide-react";
+import {
+  FileCode2,
+  FileUser,
+  FolderOpen,
+  LayoutGrid,
+  LogIn,
+  Minimize2,
+  Moon,
+  Sigma,
+  Sparkles,
+  Sun,
+  UploadCloud,
+} from "lucide-react";
 import { FileVaultProvider, useFileVault } from "./context/file-vault";
 import "./app.css";
 
@@ -28,6 +40,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         />
         <title>520pdf — A Little Love for Your PDFs</title>
         <link rel="icon" type="image/svg+xml" href="/brand-assets/favicon.svg" />
+        <link rel="apple-touch-icon" href="/brand-assets/icon.svg" />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <Meta />
         <Links />
@@ -62,18 +75,19 @@ function SiteChrome({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const navLink = (to: string, label: string) => {
+  const navLink = (to: string, label: string, Icon: React.ComponentType<{ className?: string }>) => {
     const active = pathname === to;
     return (
       <Link
         to={to}
-        className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
           active
             ? "bg-[var(--accent-soft)] text-[var(--accent)]"
             : "text-[var(--ink-secondary)] hover:bg-[var(--bg-subtle)] hover:text-[var(--ink-primary)]"
         }`}
       >
-        {label}
+        <Icon className="h-[15px] w-[15px] shrink-0" aria-hidden="true" />
+        <span>{label}</span>
       </Link>
     );
   };
@@ -91,12 +105,12 @@ function SiteChrome({ children }: { children: React.ReactNode }) {
               />
             </Link>
             <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
-              {navLink("/", "All Tools")}
-              {navLink("/drop", "Drop Hub")}
-              {navLink("/compress-pdf", "Compress")}
-              {navLink("/resume-builder", "Resume")}
-              {navLink("/latex-resume", "LaTeX")}
-              {navLink("/equation-to-image", "Equations")}
+              {navLink("/", "All Tools", LayoutGrid)}
+              {navLink("/drop", "Drop Hub", UploadCloud)}
+              {navLink("/compress-pdf", "Compress", Minimize2)}
+              {navLink("/resume-builder", "Resume", FileUser)}
+              {navLink("/latex-resume", "LaTeX", FileCode2)}
+              {navLink("/equation-to-image", "Equations", Sigma)}
             </nav>
           </div>
 
@@ -137,6 +151,7 @@ function SiteChrome({ children }: { children: React.ReactNode }) {
       <footer className="mt-16 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-6 text-xs text-[var(--ink-muted)] sm:px-6">
           <div className="flex items-center gap-2">
+            <img src="/brand-assets/icon.svg" alt="" className="h-5 w-5" />
             <span className="font-semibold text-[var(--ink-primary)]">520pdf</span>
             <span>·</span>
             <span>我爱你 PDF — Single-binary Rust Axum + React Router 8</span>

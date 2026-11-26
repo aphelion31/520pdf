@@ -40,11 +40,15 @@ One compiled executable (**7.89 MiB** release binary + **4.57 MiB** static `web/
 
 All screenshots below were captured cleanly at `1440×900` (`2×` retina DPR) against the local `--release` `pdf520 serve` binary via headless Chromium (`tools/e2e.mjs`) with zero console errors, zero page errors, zero failed HTTP requests, and responsive mobile verification.
 
-### Drop Hero & Argon2id Sign In
+### Drop Hero & 28-Tool Icon Grid
 
-| Workspace Home & File Vault | Optional Argon2id Sign In (`/login`) |
+| Workspace Home & File Vault | All 28 Tools & Category Filter |
 | --- | --- |
-| ![520pdf Workspace Home](docs/screenshots/home.png) | ![520pdf Login](docs/screenshots/login.png) |
+| ![520pdf Workspace Home](docs/screenshots/home.png) | ![520pdf 28-Tool Grid](docs/screenshots/tools-grid.png) |
+
+### Optional Argon2id Sign In (`/login`)
+
+![520pdf Login](docs/screenshots/login.png)
 
 ### Compress PDF & Compress Image
 
