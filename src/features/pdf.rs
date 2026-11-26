@@ -276,7 +276,7 @@ pub fn run(
                     return Err("font_size must be between 1 and 300".into());
                 }
                 let start = integer(options, "start", 1)?;
-                if start < 0 || start > 1_000_000 {
+                if !(0..=1_000_000).contains(&start) {
                     return Err("start must be between 0 and 1000000".into());
                 }
                 for (index, n) in selected.into_iter().enumerate() {
@@ -335,6 +335,7 @@ pub fn run(
             }
         }
         "forms" => fill_forms(&mut doc, options)?,
+        "protect" => visual_protect(&mut doc, &pages, &selected, options)?,
         _ => return Err(format!("Unsupported PDF tool: {tool}")),
     }
     doc.prune_objects();
@@ -578,6 +579,10 @@ fn text_content(text: &str, x: f32, y: f32, size: f32, gray: f32) -> Result<Vec<
     .encode()
     .map_err(err)
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "explicit overlay coordinates and styling"
+)]
 fn overlay(
     doc: &mut Document,
     id: ObjectId,
@@ -744,6 +749,140 @@ fn image_signature(doc: &mut Document, id: ObjectId, options: &Options) -> Resul
         .set("Contents", contents);
     Ok(())
 }
+pub fn strip_metadata(doc: &mut Document) {
+    if let Ok(info_ref) = doc.trailer.get(b"Info").and_then(Object::as_reference)
+        && let Ok(dict) = doc.get_dictionary_mut(info_ref)
+    {
+        dict.remove(b"Title");
+        dict.remove(b"Author");
+        dict.remove(b"Subject");
+        dict.remove(b"Keywords");
+        dict.set("Producer", Object::string_literal("520pdf"));
+        dict.set("Creator", Object::string_literal("520pdf"));
+        return;
+    }
+    let info = doc.add_object(dictionary! {
+        "Producer" => Object::string_literal("520pdf"),
+        "Creator" => Object::string_literal("520pdf"),
+    });
+    doc.trailer.set("Info", info);
+}
+
+fn visual_protect(
+    doc: &mut Document,
+    pages: &std::collections::BTreeMap<u32, ObjectId>,
+    selected: &[u32],
+    options: &Options,
+) -> Result<()> {
+    let strip = options
+        .get("remove_metadata")
+        .map(String::as_str)
+        .unwrap_or("true")
+        != "false";
+    let add_overlay = options
+        .get("add_overlay")
+        .map(String::as_str)
+        .unwrap_or("true")
+        != "false";
+    let text = options
+        .get("watermark_text")
+        .or_else(|| options.get("text"))
+        .map(String::as_str)
+        .unwrap_or("")
+        .trim();
+
+    if !strip && (!add_overlay || text.is_empty()) {
+        return Err("Provide protection text or enable metadata removal".into());
+    }
+    if strip {
+        strip_metadata(doc);
+    }
+    if add_overlay && !text.is_empty() {
+        let safe_text = String::from_utf8(latin_text(text)?).map_err(err)?;
+        let radians = 45.0_f32.to_radians();
+        let (sin, cos) = radians.sin_cos();
+        for n in selected {
+            let id = pages[n];
+            let bounds = page_box(doc, id)?;
+            let w = bounds[2] - bounds[0];
+            let h = bounds[3] - bounds[1];
+            let size = (48.0_f32)
+                .min((w.hypot(h) * 0.6) / (safe_text.len().max(1) as f32 * 0.55))
+                .max(12.0);
+            let text_w = safe_text.len() as f32 * size * 0.52;
+            let cx = bounds[0] + w * 0.5 - (text_w * 0.5) * cos + (size * 0.35) * sin;
+            let cy = bounds[1] + h * 0.5 - (text_w * 0.5) * sin - (size * 0.35) * cos;
+            let font = doc.add_object(dictionary! {
+                "Type" => "Font",
+                "Subtype" => "Type1",
+                "BaseFont" => "Helvetica-Bold"
+            });
+            let mut stream_bytes = format!(
+                "q /ProtectFill gs 0.85 0.1 0.1 rg BT /ToolFont {size} Tf {cos} {sin} {} {cos} {cx} {cy} Tm ({}) Tj ET Q\n",
+                -sin,
+                safe_text.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)")
+            )
+            .into_bytes();
+            let bx = bounds[0] + 8.0;
+            let by = bounds[1] + 8.0;
+            let bw = (w - 16.0).max(10.0);
+            let bh = (h - 16.0).max(10.0);
+            stream_bytes.extend_from_slice(
+                format!("q /ProtectStroke gs 0.85 0.1 0.1 RG 2 w {bx} {by} {bw} {bh} re S Q\n")
+                    .as_bytes(),
+            );
+            let form = doc.add_object(Stream::new(
+                dictionary! {
+                    "Type" => "XObject",
+                    "Subtype" => "Form",
+                    "BBox" => bounds.iter().copied().map(Object::Real).collect::<Vec<_>>(),
+                    "Resources" => dictionary! {
+                        "Font" => dictionary! { "ToolFont" => font },
+                        "ExtGState" => dictionary! {
+                            "ProtectFill" => dictionary! { "Type" => "ExtGState", "ca" => 0.14_f32, "CA" => 0.14_f32 },
+                            "ProtectStroke" => dictionary! { "Type" => "ExtGState", "ca" => 0.30_f32, "CA" => 0.30_f32 }
+                        }
+                    }
+                },
+                stream_bytes,
+            ));
+            let mut resources = inherited(doc, id, b"Resources")?
+                .unwrap_or(Object::Dictionary(Dictionary::new()))
+                .as_dict()
+                .map_err(err)?
+                .clone();
+            let mut xobjects = match resources.get(b"XObject") {
+                Ok(o) => doc
+                    .dereference(o)
+                    .map_err(err)?
+                    .1
+                    .as_dict()
+                    .map_err(err)?
+                    .clone(),
+                Err(_) => Dictionary::new(),
+            };
+            let name = format!("ProtectOverlay{}", form.0);
+            xobjects.set(name.as_bytes(), form);
+            resources.set("XObject", xobjects);
+            doc.get_dictionary_mut(id)
+                .map_err(err)?
+                .set("Resources", resources);
+            let prefix = doc.add_object(Stream::new(dictionary! {}, b"q\n".to_vec()));
+            let mut contents = vec![Object::Reference(prefix)];
+            contents.extend(doc.get_page_contents(id).into_iter().map(Object::Reference));
+            let suffix = doc.add_object(Stream::new(
+                dictionary! {},
+                format!("\nQ\nq\n/{name} Do\nQ\n").into_bytes(),
+            ));
+            contents.push(suffix.into());
+            doc.get_dictionary_mut(id)
+                .map_err(err)?
+                .set("Contents", contents);
+        }
+    }
+    Ok(())
+}
+
 fn fill_forms(doc: &mut Document, options: &Options) -> Result<()> {
     let requested: HashMap<_, _> = options
         .iter()
@@ -839,10 +978,10 @@ fn fill_forms(doc: &mut Document, options: &Options) -> Result<()> {
         if !value.is_empty() {
             latin_text(value)?;
         }
-        if let Some(max) = inherited(doc, id, b"MaxLen")?.and_then(|v| v.as_i64().ok()) {
-            if value.len() as i64 > max {
-                return Err(format!("Field {name} exceeds its maximum length"));
-            }
+        if let Some(max) = inherited(doc, id, b"MaxLen")?.and_then(|v| v.as_i64().ok())
+            && value.len() as i64 > max
+        {
+            return Err(format!("Field {name} exceeds its maximum length"));
         }
         let widgets = match doc.get_dictionary(id).map_err(err)?.get(b"Kids") {
             Ok(kids) => kids
@@ -1090,7 +1229,7 @@ mod tests {
         };
         let (rotated, _) = run(
             "rotate",
-            &[input.clone()],
+            std::slice::from_ref(&input),
             &options(&[("pages", "2"), ("angle", "90")]),
             dir.path(),
         )
@@ -1111,7 +1250,7 @@ mod tests {
         );
         let (split, _) = run(
             "split",
-            &[input.clone()],
+            std::slice::from_ref(&input),
             &options(&[("pages", "3,1")]),
             dir.path(),
         )
@@ -1127,7 +1266,7 @@ mod tests {
         assert_eq!(Document::load(merged).unwrap().get_pages().len(), 6);
         let (cropped, _) = run(
             "crop",
-            &[input.clone()],
+            std::slice::from_ref(&input),
             &options(&[("width", "200"), ("height", "300")]),
             dir.path(),
         )
@@ -1145,7 +1284,7 @@ mod tests {
         for tool in ["watermark", "sign", "page-numbers"] {
             let (file, _) = run(
                 tool,
-                &[input.clone()],
+                std::slice::from_ref(&input),
                 &options(&[("text", "CONFIDENTIAL")]),
                 dir.path(),
             )
@@ -1156,7 +1295,7 @@ mod tests {
         assert!(
             run(
                 "rotate",
-                &[input.clone()],
+                std::slice::from_ref(&input),
                 &options(&[("angle", "45")]),
                 dir.path()
             )
@@ -1239,7 +1378,7 @@ mod tests {
             ("margin_left".into(), "10".into()),
             ("margin_top".into(), "20".into()),
         ]);
-        let (path, _) = run("crop", &[input.clone()], &crop, dir.path()).unwrap();
+        let (path, _) = run("crop", std::slice::from_ref(&input), &crop, dir.path()).unwrap();
         let d = load(&path).unwrap();
         let box_ = inherited(&d, d.get_pages()[&2], b"CropBox")
             .unwrap()
@@ -1253,7 +1392,7 @@ mod tests {
             vec![10., 0., 600., 780.]
         );
         let opts = Options::from([("rotations".into(), r#"{"1":180,"2":270}"#.into())]);
-        let (path, _) = run("rotate", &[input.clone()], &opts, dir.path()).unwrap();
+        let (path, _) = run("rotate", std::slice::from_ref(&input), &opts, dir.path()).unwrap();
         let d = load(&path).unwrap();
         let pages = d.get_pages();
         assert_eq!(
@@ -1278,7 +1417,7 @@ mod tests {
             ("rotation".into(), "45".into()),
             ("opacity".into(), "0.3".into()),
         ]);
-        let (path, _) = run("watermark", &[input.clone()], &opts, dir.path()).unwrap();
+        let (path, _) = run("watermark", std::slice::from_ref(&input), &opts, dir.path()).unwrap();
         let d = load(&path).unwrap();
         assert!(
             d.objects
@@ -1295,7 +1434,13 @@ mod tests {
             ("format".into(), "Page {n} of {total}".into()),
             ("start".into(), "2".into()),
         ]);
-        let (path, _) = run("page-numbers", &[input.clone()], &opts, dir.path()).unwrap();
+        let (path, _) = run(
+            "page-numbers",
+            std::slice::from_ref(&input),
+            &opts,
+            dir.path(),
+        )
+        .unwrap();
         let d = load(&path).unwrap();
         assert!(
             d.objects
@@ -1351,7 +1496,7 @@ mod tests {
         d.save(&input).unwrap();
         let (out, mime) = run(
             "forms",
-            &[input.clone()],
+            std::slice::from_ref(&input),
             &Options::from([("action".into(), "discover".into())]),
             dir.path(),
         )
@@ -1397,7 +1542,8 @@ mod tests {
                 vec![2, 1],
             ),
         ] {
-            let (path, mime) = run("split", &[input.clone()], &opts, dir.path()).unwrap();
+            let (path, mime) =
+                run("split", std::slice::from_ref(&input), &opts, dir.path()).unwrap();
             assert_eq!(mime, "application/zip");
             let mut zip = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
             assert_eq!(zip.len(), expected.len());
@@ -1409,7 +1555,7 @@ mod tests {
         }
         let (path, _) = run(
             "organize",
-            &[input.clone()],
+            std::slice::from_ref(&input),
             &Options::from([("pages".into(), "2,1,2".into())]),
             dir.path(),
         )
@@ -1502,7 +1648,7 @@ mod tests {
         d.save(&input).unwrap();
         let (path, _) = run(
             "forms",
-            &[input.clone()],
+            std::slice::from_ref(&input),
             &Options::from([("action".into(), "discover".into())]),
             dir.path(),
         )
@@ -1531,5 +1677,41 @@ mod tests {
     #[test]
     fn numeric_validation() {
         assert!(number(&HashMap::from([("x".into(), "NaN".into())]), "x", 0.).is_err());
+    }
+
+    #[test]
+    fn visual_protect_strips_metadata_and_adds_overlay() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("doc.pdf");
+        let mut d = fixture();
+        let info = d.add_object(dictionary! {
+            "Title" => Object::string_literal("Secret Title"),
+            "Author" => Object::string_literal("Alice")
+        });
+        d.trailer.set("Info", info);
+        d.save(&input).unwrap();
+        let opts = Options::from([
+            ("mode".into(), "visual".into()),
+            ("watermark_text".into(), "CONFIDENTIAL".into()),
+            ("remove_metadata".into(), "true".into()),
+        ]);
+        let (out, _) = run("protect", &[input], &opts, dir.path()).unwrap();
+        let protected = load(&out).unwrap();
+        let info_id = protected
+            .trailer
+            .get(b"Info")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let info_dict = protected.get_dictionary(info_id).unwrap();
+        assert!(info_dict.get(b"Title").is_err());
+        assert_eq!(
+            info_dict.get(b"Producer").unwrap().as_str().unwrap(),
+            b"520pdf"
+        );
+        assert!(
+            String::from_utf8_lossy(&protected.get_page_content(protected.get_pages()[&1]))
+                .contains("ProtectOverlay")
+        );
     }
 }

@@ -41,6 +41,30 @@ fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("webhook") {
         return server::main();
     }
+    if std::env::args().nth(1).as_deref() == Some("hash-password") {
+        let password = match std::env::args().nth(2) {
+            Some(p) => p,
+            None => {
+                use std::io::Read;
+                let mut buf = String::new();
+                if std::io::stdin().read_to_string(&mut buf).is_err() {
+                    eprintln!("error: failed to read password from stdin");
+                    return ExitCode::FAILURE;
+                }
+                buf.trim_end_matches(['\r', '\n']).to_string()
+            }
+        };
+        return match http::auth::hash_password(&password) {
+            Ok(phc) => {
+                println!("{phc}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     match run() {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::from(2),

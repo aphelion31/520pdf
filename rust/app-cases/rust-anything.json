@@ -1,0 +1,15 @@
+{
+  "schema": "rust-anything/app-cases@1",
+  "name": "node_env=production",
+  "run": [
+    "env",
+    "NODE_ENV=production",
+    "node",
+    "/tmp/ihatepdf-record/dist/index.js"
+  ],
+  "normalize": [
+    "timestamps"
+  ],
+  "timeout_secs": 30,
+  "http": {}
+}

@@ -319,7 +319,7 @@ fn secret_file(dir: &Path, name: &str, content: &str) -> Res<PathBuf> {
         .map_err(|e| e.to_string())?;
     Ok(path)
 }
-fn command(program: &str, args: &[String], dir: &Path) -> Res<()> {
+pub(super) fn command(program: &str, args: &[String], dir: &Path) -> Res<()> {
     command_output(program, args, dir).map(|_| ())
 }
 fn command_output(program: &str, args: &[String], dir: &Path) -> Res<String> {
@@ -817,14 +817,24 @@ mod tests {
         fs::write(&input, b"not a pdf").unwrap();
         let options = std::collections::HashMap::new();
         assert!(
-            run("office-to-pdf", &[input.clone()], &options, dir.path())
-                .unwrap_err()
-                .contains("Supported office")
+            run(
+                "office-to-pdf",
+                std::slice::from_ref(&input),
+                &options,
+                dir.path()
+            )
+            .unwrap_err()
+            .contains("Supported office")
         );
         assert!(
-            run("compare", &[input.clone()], &options, dir.path())
-                .unwrap_err()
-                .contains("exactly two")
+            run(
+                "compare",
+                std::slice::from_ref(&input),
+                &options,
+                dir.path()
+            )
+            .unwrap_err()
+            .contains("exactly two")
         );
         assert!(
             run(

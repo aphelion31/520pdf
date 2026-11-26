@@ -3,4 +3,10 @@
 .env.*
 !.env.example
 .DS_Store
+**/.DS_Store
 *.pdf
+web/node_modules/
+web/build/
+web/.react-router/
+web/**/dist/
+rust-analyze-temp.json

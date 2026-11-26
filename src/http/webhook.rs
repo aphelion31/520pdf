@@ -20,9 +20,14 @@ use base64::Engine;
 use std::{process::ExitCode, sync::Arc, time::Duration};
 use tokio::sync::Semaphore;
 
+struct DocsAuth {
+    user: String,
+    password_hash: String,
+}
+
 struct App {
     secret: String,
-    docs_auth: Option<String>,
+    docs_auth: Option<DocsAuth>,
     target_kb: f64,
     jobs: Arc<Semaphore>,
     timeout: Duration,
@@ -43,13 +48,24 @@ pub fn main() -> ExitCode {
     }
     let docs_auth = std::env::var("DOCS_USER")
         .ok()
-        .zip(std::env::var("DOCS_PASSWORD").ok())
-        .filter(|(u, p)| !u.is_empty() && !u.contains(':') && !p.is_empty())
-        .map(|(u, p)| {
-            format!(
-                "Basic {}",
-                base64::engine::general_purpose::STANDARD.encode(format!("{u}:{p}"))
-            )
+        .filter(|u| !u.is_empty() && !u.contains(':'))
+        .and_then(|user| {
+            if let Ok(hash) = std::env::var("DOCS_PASSWORD_HASH")
+                && !hash.trim().is_empty()
+            {
+                return Some(DocsAuth {
+                    user,
+                    password_hash: hash,
+                });
+            }
+            std::env::var("DOCS_PASSWORD")
+                .ok()
+                .filter(|p| !p.is_empty())
+                .and_then(|p| crate::http::auth::hash_password(&p).ok())
+                .map(|password_hash| DocsAuth {
+                    user,
+                    password_hash,
+                })
         });
     let app = Arc::new(App {
         docs_auth,
@@ -100,9 +116,24 @@ fn docs_response(
     body: &'static str,
 ) -> Response {
     let authorized = app.docs_auth.as_ref().is_some_and(|expected| {
-        headers
+        let Some(raw) = headers
             .get(header::AUTHORIZATION)
-            .is_some_and(|actual| same(actual.as_bytes(), expected.as_bytes()))
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Basic "))
+        else {
+            return false;
+        };
+        let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(raw) else {
+            return false;
+        };
+        let Ok(creds) = std::str::from_utf8(&decoded) else {
+            return false;
+        };
+        let Some((user, pass)) = creds.split_once(':') else {
+            return false;
+        };
+        crate::http::auth::constant_time_eq(user.as_bytes(), expected.user.as_bytes())
+            && crate::http::auth::verify_password(pass, &expected.password_hash)
     });
     let mut res = if authorized {
         ([(header::CONTENT_TYPE, content_type)], body).into_response()
@@ -299,7 +330,10 @@ mod tests {
     fn docs_require_separate_credentials() {
         let mut app = App {
             secret: "api-token".into(),
-            docs_auth: Some("Basic dXNlcjpwYXNz".into()),
+            docs_auth: Some(DocsAuth {
+                user: "user".into(),
+                password_hash: crate::http::auth::hash_password("pass").unwrap(),
+            }),
             target_kb: 250.0,
             jobs: Arc::new(Semaphore::new(1)),
             timeout: Duration::from_secs(120),
@@ -312,6 +346,14 @@ mod tests {
         headers.insert(
             header::AUTHORIZATION,
             HeaderValue::from_static("Bearer api-token"),
+        );
+        assert_eq!(
+            docs_response(&app, &headers, "text/html", "private").status(),
+            StatusCode::UNAUTHORIZED
+        );
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Basic dXNlcjp3cm9uZw=="),
         );
         assert_eq!(
             docs_response(&app, &headers, "text/html", "private").status(),

@@ -197,10 +197,10 @@ fn run_with_provider(
         return Err("output_format must be txt or pdf".into());
     }
     for name in ["ocr", "bilingual"] {
-        if let Some(v) = options.get(name) {
-            if !matches!(v.as_str(), "true" | "false") {
-                return Err(format!("{name} must be true or false"));
-            }
+        if let Some(v) = options.get(name)
+            && !matches!(v.as_str(), "true" | "false")
+        {
+            return Err(format!("{name} must be true or false"));
         }
     }
     fs::create_dir_all(dir).map_err(|_| "Cannot create working directory")?;
@@ -402,7 +402,7 @@ mod tests {
         assert!(
             run_with_provider(
                 "translate",
-                &[input.clone()],
+                std::slice::from_ref(&input),
                 &options,
                 dir,
                 Some(&provider)
@@ -413,7 +413,7 @@ mod tests {
         options.insert("consent".into(), "true".into());
         let (pdf, mime) = run_with_provider(
             "translate",
-            &[input.clone()],
+            std::slice::from_ref(&input),
             &options,
             dir,
             Some(&provider),

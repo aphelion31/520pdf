@@ -15,27 +15,37 @@ pub fn run(
     if tool != "equation-to-image" {
         return Err("Unknown equation tool".into());
     }
-    if files.len() != 1 {
-        return Err("Upload exactly one .txt file".into());
-    }
-    if !files[0]
-        .extension()
-        .and_then(|s| s.to_str())
-        .is_some_and(|s| s.eq_ignore_ascii_case("txt"))
+    let expr_owned;
+    let expression = if let Some(expr) = options.get("expression").filter(|s| !s.trim().is_empty())
     {
-        return Err("Upload a .txt file".into());
-    }
+        if expr.len() > 16_000 {
+            return Err("Equation exceeds 4000 characters".into());
+        }
+        expr.as_str()
+    } else {
+        if files.len() != 1 {
+            return Err("Upload exactly one .txt file".into());
+        }
+        if !files[0]
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| s.eq_ignore_ascii_case("txt"))
+        {
+            return Err("Upload a .txt file".into());
+        }
+        let mut bytes = Vec::new();
+        fs::File::open(&files[0])
+            .map_err(|_| "Cannot read equation file")?
+            .take(16_001)
+            .read_to_end(&mut bytes)
+            .map_err(|_| "Cannot read equation file")?;
+        if bytes.len() > 16_000 {
+            return Err("Equation exceeds 4000 characters".into());
+        }
+        expr_owned = String::from_utf8(bytes).map_err(|_| "Equation must be UTF-8")?;
+        &expr_owned
+    };
     let size = font_size(options)?;
-    let mut bytes = Vec::new();
-    fs::File::open(&files[0])
-        .map_err(|_| "Cannot read equation file")?
-        .take(16_001)
-        .read_to_end(&mut bytes)
-        .map_err(|_| "Cannot read equation file")?;
-    if bytes.len() > 16_000 {
-        return Err("Equation exceeds 4000 characters".into());
-    }
-    let expression = std::str::from_utf8(&bytes).map_err(|_| "Equation must be UTF-8")?;
     validate_expression(expression)?;
     fs::create_dir_all(dir).map_err(|_| "Cannot prepare output directory")?;
     let dir = dir
