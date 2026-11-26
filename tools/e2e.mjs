@@ -205,6 +205,33 @@ try {
   await page.screenshot({ path: path.join(SHOT_DIR, "watermark-pdf.png"), fullPage: false });
   console.log("Captured watermark-pdf.png");
 
+  // 4c. Edit PDF (interactive SVG overlay + highlight + text + Rust save)
+  await page.goto(`${BASE}/edit-pdf`, { waitUntil: "networkidle" });
+  await page.locator('input[type="file"]').last().setInputFiles(samplePdfPath);
+  const svgCanvas = page.locator("svg.cursor-crosshair").first();
+  await svgCanvas.waitFor({ timeout: 15000 });
+  const svgBox = await svgCanvas.boundingBox();
+  assert.ok(svgBox, "edit canvas svg missing");
+  // Place Text annotation
+  await page.mouse.click(svgBox.x + svgBox.width * 0.62, svgBox.y + svgBox.height * 0.14);
+  // Switch to Highlight and drag across a region
+  await page.getByRole("button", { name: "Highlight", exact: true }).click();
+  await page.mouse.move(svgBox.x + svgBox.width * 0.12, svgBox.y + svgBox.height * 0.22);
+  await page.mouse.down();
+  await page.mouse.move(svgBox.x + svgBox.width * 0.55, svgBox.y + svgBox.height * 0.27, { steps: 4 });
+  await page.mouse.up();
+  // Switch to Rectangle and draw box
+  await page.getByRole("button", { name: "Rectangle" }).click();
+  await page.mouse.move(svgBox.x + svgBox.width * 0.6, svgBox.y + svgBox.height * 0.2);
+  await page.mouse.down();
+  await page.mouse.move(svgBox.x + svgBox.width * 0.88, svgBox.y + svgBox.height * 0.34, { steps: 4 });
+  await page.mouse.up();
+  await page.getByRole("button", { name: "Save Edited PDF" }).click();
+  await page.getByText(/Ready: sample-resume_520pdf_edit-pdf\.pdf/).waitFor({ timeout: 15000 });
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(SHOT_DIR, "edit-pdf.png"), fullPage: false });
+  console.log("Captured edit-pdf.png");
+
   // 5. Equation to Image (BasecoatSelect + live KaTeX + PNG render)
   await page.goto(`${BASE}/equation-to-image`, { waitUntil: "networkidle" });
   const scaleSelect = page.getByRole("combobox", { name: "Render resolution scale" });
@@ -245,7 +272,7 @@ try {
   assert.deepEqual(consoleErrors, [], `console errors: ${consoleErrors.join("; ")}`);
   assert.deepEqual(pageErrors, [], `page errors: ${pageErrors.join("; ")}`);
   assert.deepEqual(failedRequests, [], `failed requests: ${failedRequests.join("; ")}`);
-  console.log("PASS: all 10 retina screenshots + zero console/page/network errors + mobile responsive");
+  console.log("PASS: all 11 retina screenshots + zero console/page/network errors + mobile responsive");
 } finally {
   await browser.close();
 }

@@ -13,6 +13,7 @@ export default [
   route("watermark-pdf", "routes/watermark-pdf.tsx"),
   route("lock-pdf", "routes/lock-pdf.tsx"),
   route("sign-pdf", "routes/sign-pdf.tsx"),
+  route("edit-pdf", "routes/edit-pdf.tsx"),
   route("equation-to-image", "routes/equation-to-image.tsx"),
   route("latex-resume", "routes/latex-resume.tsx"),
   route("resume-builder", "routes/resume-builder.tsx"),

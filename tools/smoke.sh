@@ -48,11 +48,11 @@ check_get /api/tools
 python3 - "$TMP/body" <<'PY'
 import json, sys
 tools = json.load(open(sys.argv[1]))["tools"]
-assert len(tools) == 28, f"expected 28 tools, got {len(tools)}"
+assert len(tools) == 36, f"expected 36 tools, got {len(tools)}"
 PY
-echo "PASS /api/tools (28 tools)"
+echo "PASS /api/tools (36 tools)"
 
-for route in / /drop /login /merge-pdfs /split-pdf /compress-pdf /compress-image /pdf-to-image /image-to-pdf /watermark-pdf /lock-pdf /sign-pdf /equation-to-image /latex-resume /resume-builder; do
+for route in / /drop /login /merge-pdfs /split-pdf /compress-pdf /compress-image /pdf-to-image /image-to-pdf /watermark-pdf /lock-pdf /sign-pdf /edit-pdf /equation-to-image /latex-resume /resume-builder; do
   check_get "$route"
   grep -qi '<!doctype html>' "$TMP/body"
 done
@@ -123,6 +123,60 @@ with zipfile.ZipFile(sys.argv[1]) as z:
 PY
 post_tool image-to-pdf "$TMP/from-img.pdf" -F "files=@$TMP/page1.png" -F "page_size=a4"
 head -c 5 "$TMP/from-img.pdf" | grep -q '%PDF-'
+post_tool pdf-to-image "$TMP/extracted.zip" -F "files=@$TMP/from-img.pdf" -F "mode=extract" -F "format=png"
+python3 - "$TMP/extracted.zip" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z:
+    names = z.namelist()
+    assert len(names) >= 1 and names[0].endswith(".png"), names
+PY
+
+post_tool rotate "$TMP/rotated-batch.zip" -F "files=@$TMP/NPWP.pdf" -F "files=@$TMP/latex.pdf" -F "angle=90"
+python3 - "$TMP/rotated-batch.zip" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z:
+    assert len(z.namelist()) == 2, z.namelist()
+PY
+
+post_tool edit-pdf "$TMP/edited.pdf" -F "files=@$TMP/NPWP.pdf" -F 'annotations=[{"type":"text","page":1,"x":60,"y":720,"text":"Reviewed","font_size":18,"color":"#E63228"},{"type":"highlight","page":1,"x":60,"y":680,"width":160,"height":20},{"type":"rect","page":1,"x":60,"y":600,"width":120,"height":50,"color":"#2563EB"},{"type":"path","page":1,"points":[[60,550],[120,570],[180,545]]}]'
+grep -qi 'filename="NPWP_520pdf_edit-pdf.pdf"' "$TMP/headers"
+head -c 5 "$TMP/edited.pdf" | grep -q '%PDF-'
+
+post_tool pdf-to-word "$TMP/doc.docx" -F "files=@$TMP/NPWP.pdf"
+grep -qi 'filename="NPWP_520pdf_pdf-to-word.docx"' "$TMP/headers"
+python3 - "$TMP/doc.docx" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z:
+    assert "word/document.xml" in z.namelist()
+PY
+post_tool word-to-pdf "$TMP/from-docx.pdf" -F "files=@$TMP/doc.docx"
+head -c 5 "$TMP/from-docx.pdf" | grep -q '%PDF-'
+
+post_tool pdf-to-powerpoint "$TMP/deck-vis.pptx" -F "files=@$TMP/NPWP.pdf" -F "mode=visual"
+post_tool pdf-to-powerpoint "$TMP/deck-edit.pptx" -F "files=@$TMP/NPWP.pdf" -F "mode=editable"
+python3 - "$TMP/deck-vis.pptx" "$TMP/deck-edit.pptx" <<'PY'
+import sys, zipfile
+for p in sys.argv[1:]:
+    with zipfile.ZipFile(p) as z:
+        assert "ppt/slides/slide1.xml" in z.namelist(), p
+PY
+post_tool powerpoint-to-pdf "$TMP/from-pptx.pdf" -F "files=@$TMP/deck-edit.pptx"
+head -c 5 "$TMP/from-pptx.pdf" | grep -q '%PDF-'
+
+post_tool pdf-to-excel "$TMP/sheet.xlsx" -F "files=@$TMP/NPWP.pdf"
+python3 - "$TMP/sheet.xlsx" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z:
+    assert "xl/worksheets/sheet1.xml" in z.namelist()
+PY
+post_tool excel-to-pdf "$TMP/from-xlsx.pdf" -F "files=@$TMP/sheet.xlsx"
+head -c 5 "$TMP/from-xlsx.pdf" | grep -q '%PDF-'
+
+post_tool pdf-to-markdown "$TMP/out.md" -F "files=@$TMP/NPWP.pdf"
+test -s "$TMP/out.md"
+
+post_tool html-to-pdf "$TMP/from-html.pdf" --form-string "html=<h1>520pdf</h1><script>evil()</script><p>Offline HTML test.</p>"
+head -c 5 "$TMP/from-html.pdf" | grep -q '%PDF-'
 
 post_tool compress-image "$TMP/img-out.jpg" -F "files=@$TMP/page1.png" -F "quality=75" -F "max_width=640" -F "output_format=jpeg"
 python3 - "$TMP/img-out.jpg" <<'PY'

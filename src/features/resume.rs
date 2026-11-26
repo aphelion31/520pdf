@@ -338,7 +338,7 @@ body {{ color: #222b30; font: 10.5pt/1.55 sans-serif; }}
 }
 
 #[derive(Clone, Copy)]
-enum FontKind {
+pub(crate) enum FontKind {
     Regular,
     Bold,
     Italic,
@@ -380,7 +380,7 @@ fn to_win_ansi(s: &str) -> Vec<u8> {
         .collect()
 }
 
-fn approx_width(text: &str, size: f32, font: FontKind) -> f32 {
+pub(crate) fn approx_width(text: &str, size: f32, font: FontKind) -> f32 {
     let mut units = 0.0f32;
     for ch in text.chars() {
         units += match ch {
@@ -394,7 +394,7 @@ fn approx_width(text: &str, size: f32, font: FontKind) -> f32 {
     units * size
 }
 
-fn wrap_text(text: &str, max_width: f32, size: f32, font: FontKind) -> Vec<String> {
+pub(crate) fn wrap_text(text: &str, max_width: f32, size: f32, font: FontKind) -> Vec<String> {
     let mut lines = Vec::new();
     for raw_line in text.split('\n') {
         let trimmed = raw_line.trim_end();
@@ -437,24 +437,28 @@ fn wrap_text(text: &str, max_width: f32, size: f32, font: FontKind) -> Vec<Strin
     lines
 }
 
-struct PdfLayout {
+pub(crate) struct PdfLayout {
     pages: Vec<Content>,
-    width: f32,
-    height: f32,
-    margin_x: f32,
-    margin_y: f32,
-    y: f32,
+    pub(crate) width: f32,
+    pub(crate) height: f32,
+    pub(crate) margin_x: f32,
+    pub(crate) margin_y: f32,
+    pub(crate) y: f32,
 }
 
 impl PdfLayout {
-    fn a4(margin_x: f32, margin_y: f32) -> Self {
+    pub(crate) fn a4(margin_x: f32, margin_y: f32) -> Self {
+        Self::custom(A4_W, A4_H, margin_x, margin_y)
+    }
+
+    pub(crate) fn custom(width: f32, height: f32, margin_x: f32, margin_y: f32) -> Self {
         Self {
             pages: vec![Content::new()],
-            width: A4_W,
-            height: A4_H,
+            width,
+            height,
             margin_x,
             margin_y,
-            y: A4_H - margin_y,
+            y: height - margin_y,
         }
     }
 
@@ -462,22 +466,49 @@ impl PdfLayout {
         self.pages.last_mut().expect("at least one page")
     }
 
-    fn avail(&self, indent: f32) -> f32 {
+    pub(crate) fn avail(&self, indent: f32) -> f32 {
         (self.width - self.margin_x * 2.0 - indent).max(80.0)
     }
 
-    fn new_page(&mut self) {
+    pub(crate) fn new_page(&mut self) {
         self.pages.push(Content::new());
         self.y = self.height - self.margin_y;
     }
 
-    fn ensure_space(&mut self, needed: f32) {
+    pub(crate) fn ensure_space(&mut self, needed: f32) {
         if self.y - needed < self.margin_y {
             self.new_page();
         }
     }
 
-    fn draw_text_at(
+    pub(crate) fn fill_rect(&mut self, x: f32, y: f32, w: f32, h: f32, rgb: (f32, f32, f32)) {
+        let c = self.content();
+        c.save_state();
+        c.set_fill_rgb(rgb.0, rgb.1, rgb.2);
+        c.rect(x, y, w, h);
+        c.fill_nonzero();
+        c.restore_state();
+    }
+
+    pub(crate) fn stroke_rect(
+        &mut self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        rgb: (f32, f32, f32),
+        lw: f32,
+    ) {
+        let c = self.content();
+        c.save_state();
+        c.set_stroke_rgb(rgb.0, rgb.1, rgb.2);
+        c.set_line_width(lw);
+        c.rect(x, y, w, h);
+        c.stroke();
+        c.restore_state();
+    }
+
+    pub(crate) fn draw_text_at(
         &mut self,
         text: &str,
         x: f32,
@@ -499,7 +530,7 @@ impl PdfLayout {
         c.end_text();
     }
 
-    fn draw_wrapped(
+    pub(crate) fn draw_wrapped(
         &mut self,
         text: &str,
         font: FontKind,
@@ -519,7 +550,13 @@ impl PdfLayout {
         }
     }
 
-    fn draw_centered(&mut self, text: &str, font: FontKind, size: f32, color: (f32, f32, f32)) {
+    pub(crate) fn draw_centered(
+        &mut self,
+        text: &str,
+        font: FontKind,
+        size: f32,
+        color: (f32, f32, f32),
+    ) {
         let lines = wrap_text(text, self.avail(0.0), size, font);
         let leading = size * 1.35;
         for line in lines {
@@ -553,7 +590,7 @@ impl PdfLayout {
         self.y -= leading;
     }
 
-    fn draw_rule(&mut self, color: (f32, f32, f32), thickness: f32) {
+    pub(crate) fn draw_rule(&mut self, color: (f32, f32, f32), thickness: f32) {
         self.ensure_space(8.0);
         let y = self.y - 3.0;
         let x1 = self.margin_x;
@@ -569,7 +606,7 @@ impl PdfLayout {
         self.y -= 8.0;
     }
 
-    fn draw_section_heading(&mut self, title: &str, accent: (f32, f32, f32)) {
+    pub(crate) fn draw_section_heading(&mut self, title: &str, accent: (f32, f32, f32)) {
         self.y -= 6.0;
         self.ensure_space(28.0);
         let upper = title.trim().to_uppercase();
@@ -580,7 +617,7 @@ impl PdfLayout {
         self.y -= 2.0;
     }
 
-    fn finish_pdf(self, title: &str) -> Vec<u8> {
+    pub(crate) fn finish_pdf(self, title: &str) -> Vec<u8> {
         let mut pdf = Pdf::new();
         let catalog_id = Ref::new(1);
         let pages_id = Ref::new(2);

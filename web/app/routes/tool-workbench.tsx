@@ -78,17 +78,20 @@ export default function ToolWorkbench() {
   const accept = apiTool?.accept || meta?.accept || ".pdf";
   const multiple = apiTool?.multiple ?? meta?.multiple ?? false;
 
+  const hasInlineHtml =
+    toolId === "html-to-pdf" && String(values.html ?? "").trim().length > 0;
+
   const handleRun = async () => {
-    if (!files.length) return;
+    if (!files.length && !hasInlineHtml) return;
     setBusy(true);
     setError(null);
     setResult(null);
     try {
       const payload: Record<string, string | boolean> = { ...values };
-      if (toolId === "organize" && pages.length) {
+      if (toolId === "organize" && pages.length && files.length === 1) {
         payload.pages = pages.filter((p) => p.selected).map((p) => p.pageNumber).join(",");
       }
-      if (toolId === "rotate" && pages.length && pages.some((p) => p.rot !== 0)) {
+      if (toolId === "rotate" && files.length === 1 && pages.length && pages.some((p) => p.rot !== 0)) {
         payload.rotations = JSON.stringify(
           Object.fromEntries(pages.map((p) => [p.pageNumber, p.rot])),
         );
@@ -115,7 +118,13 @@ export default function ToolWorkbench() {
           }}
         />
 
-        {pages.length > 0 && (toolId === "organize" || toolId === "rotate") && (
+        {toolId === "rotate" && files.length > 1 && (
+          <p className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-page)] px-4 py-3 text-xs font-medium text-[var(--ink-secondary)]">
+            Batch mode: all {files.length} PDFs will be rotated by {String(values.angle || "90")}° and exported together as a ZIP archive.
+          </p>
+        )}
+
+        {pages.length > 0 && files.length === 1 && (toolId === "organize" || toolId === "rotate") && (
           <div>
             <p className="mb-2 text-xs font-semibold text-[var(--ink-muted)] uppercase">
               Interactive Page Grid
@@ -275,7 +284,7 @@ export default function ToolWorkbench() {
 
         <button
           type="button"
-          disabled={busy || !files.length}
+          disabled={busy || (!files.length && !hasInlineHtml)}
           onClick={handleRun}
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-5 py-3 text-sm font-semibold text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
         >

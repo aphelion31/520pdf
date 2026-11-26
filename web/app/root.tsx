@@ -163,7 +163,7 @@ function SiteChrome({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex items-center gap-4">
             <span className="inline-flex items-center gap-1">
-              <Sparkles className="h-3.5 w-3.5 text-[var(--accent)]" /> 28 self-hosted PDF & document tools
+              <Sparkles className="h-3.5 w-3.5 text-[var(--accent)]" /> 36 self-hosted PDF & document tools
             </span>
             <Link to="/drop" className="hover:text-[var(--ink-primary)]">
               Drop Hub

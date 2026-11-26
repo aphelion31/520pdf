@@ -33,5 +33,5 @@ import sys
 from pathlib import Path
 p=Path(sys.argv[1]); assert (p/'compressed').stat().st_size <= (p/'page.png').stat().st_size
 PY
-curl -fsS http://127.0.0.1:8080/api/tools | python3 -c 'import sys,json; t=json.load(sys.stdin)["tools"]; assert len(t)==28; print("PASS 28-tool catalog")'
+curl -fsS http://127.0.0.1:8080/api/tools | python3 -c 'import sys,json; t=json.load(sys.stdin)["tools"]; assert len(t)==36; print("PASS 36-tool catalog")'
 echo 'PASS new reference tools runtime'

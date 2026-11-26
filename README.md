@@ -25,10 +25,10 @@
 
 One compiled executable (**7.89 MiB** release binary + **4.57 MiB** static `web/build/client` bundle on macOS `arm64`, using **7.61 MiB** RSS idle and **23.86 MiB** under load). No Node.js runtime, no `node_modules` (`426.88 MiB` eliminated), and pure-Rust local execution for all 12 core `iHatePDF` workflows without Python, WeasyPrint, or TeX processes.
 
-### 🧰 28 local PDF, image & document tools
+### 🧰 36 local PDF, Office, image & document tools
 
-- **12/12 `iHatePDF` core tools** running natively or via local Ghostscript: Drop Hub & File Vault, Merge PDF, Split PDF (`extract` or `all` ZIP), Compress PDF (`low` / `medium` / `high` / target KB + side-by-side page comparison), Compress Image (`jpeg` / `webp` / `png` + quality & max width), PDF to Image (`png` / `jpg` / `webp` + page ranges), Image to PDF, Watermark PDF, Lock/Protect PDF (pure-Rust visual protection + metadata strip or `qpdf` AES-256), Sign PDF (live signature pad + coordinate preview), Equation to Image (live KaTeX + tight cropped PNG/JPG), Resume Builder (`pdf-writer 0.15` A4 PDF), and LaTeX Resume (3 live-preview templates compiled directly to A4 PDF in Rust).
-- **16 additional workbench tools**: Organize Pages, Rotate, Crop, Unlock, Page Numbers, Fillable PDF Forms, Compare PDFs, PDF to Markdown, Office to PDF, HTML to PDF, PDF/A-2, Scan/OCR to PDF, Repair PDF, Permanent Redact, plus opt-in AI Summarize & Translate (`/tools/:toolId`).
+- **13/13 core `iHatePDF` + interactive tools** running natively or via local Ghostscript: Drop Hub & File Vault, Merge PDF, Split PDF (`extract` or `all` ZIP), Compress PDF (`low` / `medium` / `high` / target KB + `250 KB` floor + side-by-side page comparison), Compress Image (`jpeg` / `webp` / `png` + quality & max width), PDF to Image (rasterize pages or **extract embedded images** to ZIP), Image to PDF, Watermark PDF (custom multi-count / `3×3` grids, custom RGB color, image/logo upload), Lock/Protect PDF (pure-Rust visual protection + metadata strip or `qpdf` AES-256), Sign PDF (drag/resize signature overlay + live pad), **Edit PDF** (interactive text, highlight, shapes, freehand drawing & image overlay), Equation to Image (live KaTeX + tight cropped PNG/JPG), Resume Builder (`pdf-writer 0.15` A4 PDF), and LaTeX Resume (3 live-preview templates compiled directly to A4 PDF in Rust).
+- **23 additional PDF, Office & AI tools**: Bidirectional pure-Rust Office converters (**PDF to Word `.docx`**, **PDF to PowerPoint `.pptx`**, **PDF to Excel `.xlsx`**, **Word to PDF**, **PowerPoint to PDF**, **Excel/CSV to PDF**, **Office to PDF**), Organize Pages, Rotate (single PDF or batch multi-PDF ZIP), Crop, Unlock, Page Numbers, Fillable PDF Forms, Compare PDFs, PDF to Markdown (Poppler + pure-Rust fallback), offline HTML to PDF (file upload or pasted markup, SSRF-safe), PDF/A-2, Scan to PDF, OCR PDF, Repair PDF, Permanent Redact, plus opt-in AI Summarize & Translate (`/tools/:toolId`).
 
 ### 🔒 Security, Argon2id Auth & REA Verification
 
@@ -41,11 +41,11 @@ One compiled executable (**7.89 MiB** release binary + **4.57 MiB** static `web/
 
 All screenshots below were captured cleanly at `1440×900` (`2×` retina DPR) against the local `--release` `pdf520 serve` binary via headless Chromium (`tools/e2e.mjs`) with zero console errors, zero page errors, zero failed HTTP requests, and responsive mobile verification.
 
-### Drop Hero & 28-Tool Icon Grid
+### Drop Hero & 36-Tool Icon Grid
 
-| Workspace Home & File Vault | All 28 Tools & Category Filter |
+| Workspace Home & File Vault | All 36 Tools & Category Filter |
 | --- | --- |
-| ![520pdf Workspace Home](docs/screenshots/home.png) | ![520pdf 28-Tool Grid](docs/screenshots/tools-grid.png) |
+| ![520pdf Workspace Home](docs/screenshots/home.png) | ![520pdf 36-Tool Grid](docs/screenshots/tools-grid.png) |
 
 ### Optional Argon2id Sign In (`/login`)
 
@@ -57,17 +57,17 @@ All screenshots below were captured cleanly at `1440×900` (`2×` retina DPR) ag
 | --- | --- |
 | ![520pdf Compress PDF](docs/screenshots/compress-pdf.png) | ![520pdf Compress Image](docs/screenshots/compress-image.png) |
 
-### Sign PDF & Equation to Image
+### Interactive Sign PDF, Edit PDF & Watermark PDF
 
-| Sign PDF (Live Pad & Page Preview) | Equation to Image (KaTeX -> PNG/JPG) |
-| --- | --- |
-| ![520pdf Sign PDF](docs/screenshots/sign-pdf.png) | ![520pdf Equation to Image](docs/screenshots/equation-to-image.png) |
+| Sign PDF (Draggable Pad & Page Preview) | Edit PDF (Text, Highlights, Shapes & Draw) | Watermark PDF (Multi-Tile Grid & Color) |
+| --- | --- | --- |
+| ![520pdf Sign PDF](docs/screenshots/sign-pdf.png) | ![520pdf Edit PDF](docs/screenshots/edit-pdf.png) | ![520pdf Watermark PDF](docs/screenshots/watermark-pdf.png) |
 
-### Resume Builder & LaTeX Resume (`pdf-writer 0.15`)
+### Equation to Image, Resume Builder & LaTeX Resume (`pdf-writer 0.15`)
 
-| Resume Builder (A4 Preview + Rust PDF) | LaTeX Resume (3 Templates + Rust PDF) |
-| --- | --- |
-| ![520pdf Resume Builder](docs/screenshots/resume-builder.png) | ![520pdf LaTeX Resume](docs/screenshots/latex-resume.png) |
+| Equation to Image (KaTeX -> PNG/JPG) | Resume Builder (A4 Preview + Rust PDF) | LaTeX Resume (3 Templates + Rust PDF) |
+| --- | --- | --- |
+| ![520pdf Equation to Image](docs/screenshots/equation-to-image.png) | ![520pdf Resume Builder](docs/screenshots/resume-builder.png) | ![520pdf LaTeX Resume](docs/screenshots/latex-resume.png) |
 
 ---
 
@@ -82,7 +82,7 @@ Measured directly on the checked-out upstream [`iHatePDF`](https://github.com/cu
 | **Direct dependencies** | 91 npm packages (70 + 21 dev) | 19 Rust crates + 16 npm packages (7 + 9 dev) | **2.6× fewer deps** |
 | **Clean source tree** (excl. `.git`, deps, build) | `1.12 MiB` | `5.35 MiB` | Self-contained (incl. `2.74 MiB` `pdfjs` + `1.97 MiB` screenshots) |
 | **Runtime footprint** | `4.84 MiB` `dist/` + `426.88 MiB` `node_modules/` | **`7.89 MiB` binary + `4.57 MiB` `web/build/client`** | **No Node runtime (`426.88 MiB` eliminated)** |
-| **Tools / capabilities** | 12 client-side tools | **28 tools** (12/12 iHatePDF parity + 16 workbench tools) | **2.3× broader toolkit** |
+| **Tools / capabilities** | 12 client-side tools | **36 tools** (13 core + 23 PDF, Office & AI tools) | **3.0× broader toolkit** |
 
 <details>
 <summary>Breakdown of built 520pdf artifacts (<code>target/release/pdf520</code> &amp; <code>web/build/client</code>)</summary>
@@ -174,7 +174,7 @@ docker compose up -d --build
 ## API, Privacy & Limits
 
 - `GET /health`, `GET /ready`, `GET /api/status`: readiness and JSON status probes.
-- `GET /api/tools`: JSON catalog of all 28 tools, accepted extensions, routes, and option fields.
+- `GET /api/tools`: JSON catalog of all 36 tools, accepted extensions, routes, and option fields.
 - `POST /api/tools/{tool}`: multipart upload + options, returning the processed file download (`50 MiB` max payload, `30` files, `2` concurrent jobs; per-job temp dirs are deleted immediately after completion).
 - `GET /api/auth/me`, `POST /api/auth/login`, `POST /api/auth/logout`: Argon2id session status and sign-in endpoints.
 - See [`docs/TOOLS.md`](docs/TOOLS.md) for conversion security boundaries, redaction coordinate guarantees, and opt-in AI disclosure rules.
@@ -186,7 +186,7 @@ docker compose up -d --build
 ```bash
 cargo fmt --check                                         # formatting check
 cargo clippy --all-targets -- -D warnings                 # zero-warning lint gate
-cargo test --locked                                       # 36 unit tests + integration checks
+cargo test --locked                                       # 47 unit tests + integration checks
 (cd web && bun run typecheck && bun run build)            # React Router typegen, tsc & Vite bundle
 BASE=http://127.0.0.1:8089 ./tools/smoke.sh               # API + PDF/image/Argon2id roundtrip smoke suite
 BASE=http://127.0.0.1:8089 node tools/e2e.mjs             # Headless Chromium E2E + retina screenshot suite

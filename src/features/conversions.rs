@@ -44,50 +44,65 @@ fn run_value(
     dir: &Path,
 ) -> Res<(PathBuf, &'static str)> {
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let dir = dir.canonicalize().map_err(|e| e.to_string())?;
+    let out = dir.join("result.pdf");
+    if tool == "html-to-pdf" {
+        if files.len() > 1 {
+            return Err("HTML to PDF accepts at most one HTML file".into());
+        }
+        let source = if let Some(file) = files.first() {
+            let input = file.canonicalize().map_err(|e| format!("Input: {e}"))?;
+            fs::read_to_string(&input).map_err(|e| format!("HTML must be UTF-8: {e}"))?
+        } else if let Some(inline) = string_option(options, "html").filter(|s| !s.trim().is_empty())
+        {
+            inline.to_owned()
+        } else {
+            return Err("Upload an HTML file or paste HTML markup".into());
+        };
+        if source.len() > 2_000_000 {
+            return Err("HTML exceeds the 2 MB limit".into());
+        }
+        let inline_file = dir.join("input.html");
+        fs::write(&inline_file, source.as_bytes()).map_err(|e| e.to_string())?;
+        // WeasyPrint does not execute JavaScript. Its fetcher is the only resource
+        // entry point, including CSS imports, fonts, images and file URLs.
+        let weasy = command(
+            "python3",
+            &[
+                "-c".into(),
+                r#"import sys
+from weasyprint import HTML
+def deny(url, *args, **kwargs):
+    raise ValueError('External and local resources are disabled')
+HTML(string=open(sys.argv[1], encoding='utf-8').read(), url_fetcher=deny).write_pdf(sys.argv[2])"#
+                    .into(),
+                inline_file.display().to_string(),
+                out.display().to_string(),
+            ],
+            &dir,
+        );
+        let _ = fs::remove_file(&inline_file);
+        if weasy.is_err() || ensure_file(&out).is_err() {
+            crate::features::office::html_to_pdf_fallback(&source, &out)?;
+        }
+        ensure_file(&out)?;
+        return Ok((out, "application/pdf"));
+    }
+
     let input = files.first().ok_or("Upload a document first")?;
     if tool != "compare" && files.len() != 1 {
         return Err("This tool accepts exactly one document".into());
     }
     let input = input.canonicalize().map_err(|e| format!("Input: {e}"))?;
-    let dir = dir.canonicalize().map_err(|e| e.to_string())?;
-    let out = dir.join("result.pdf");
     match tool {
         "office-to-pdf" => {
-            let ext = input
-                .extension()
-                .and_then(|v| v.to_str())
-                .unwrap_or("")
-                .to_ascii_lowercase();
-            if !["doc", "docx", "ppt", "pptx", "xls", "xlsx", "odt"].contains(&ext.as_str()) {
-                return Err(
-                    "Supported office formats: doc, docx, ppt, pptx, xls, xlsx, odt".into(),
-                );
-            }
-            office_pdf(&input, &dir, &out)?;
-        }
-        "html-to-pdf" => {
-            let source =
-                fs::read_to_string(&input).map_err(|e| format!("HTML must be UTF-8: {e}"))?;
-            if source.len() > 2_000_000 {
-                return Err("HTML exceeds the 2 MB limit".into());
-            }
-            // WeasyPrint does not execute JavaScript. Its fetcher is the only resource
-            // entry point, including CSS imports, fonts, images and file URLs.
-            command(
-                "python3",
-                &[
-                    "-c".into(),
-                    r#"import sys
-from weasyprint import HTML
-def deny(url, *args, **kwargs):
-    raise ValueError('External and local resources are disabled')
-HTML(string=open(sys.argv[1], encoding='utf-8').read(), url_fetcher=deny).write_pdf(sys.argv[2])"#
-                        .into(),
-                    input.display().to_string(),
-                    out.display().to_string(),
-                ],
+            let (p, _) = crate::features::office::run(
+                "office-to-pdf",
+                std::slice::from_ref(&input),
+                &std::collections::HashMap::new(),
                 &dir,
             )?;
+            return Ok((p, "application/pdf"));
         }
         "compare" => {
             if files.len() != 2 {
@@ -115,7 +130,7 @@ HTML(string=open(sys.argv[1], encoding='utf-8').read(), url_fetcher=deny).write_
         "pdf-to-markdown" => {
             let path = dir.join("result.md");
             let xml = dir.join("layout.xml");
-            command(
+            let pdftohtml_ok = command(
                 "pdftohtml",
                 &[
                     "-xml".into(),
@@ -125,8 +140,11 @@ HTML(string=open(sys.argv[1], encoding='utf-8').read(), url_fetcher=deny).write_
                     xml.display().to_string(),
                 ],
                 &dir,
-            )?;
-            command("python3", &["-c".into(), r#"import sys, xml.etree.ElementTree as E, collections
+            )
+            .is_ok()
+                && xml.is_file();
+            if pdftohtml_ok {
+                let _ = command("python3", &["-c".into(), r#"import sys, xml.etree.ElementTree as E, collections
 root=E.parse(sys.argv[1]).getroot()
 fonts={n.get('id'):float(n.get('size','0')) for n in root.iter('fontspec')}
 lines=[n for n in root.iter('text') if ''.join(n.itertext()).strip()]
@@ -158,7 +176,11 @@ for page in root.iter('page'):
         size=max(fonts.get(n.get('font'),0) for n in cells)
         out.append(('# ' if body and size>=body*1.4 and len(text)<160 else '')+text); i+=1
     pages.append('\n\n'.join(out))
-open(sys.argv[2],'w',encoding='utf-8').write('\n\n---\n\n'.join(pages))"#.into(), xml.display().to_string(), path.display().to_string()], &dir)?;
+open(sys.argv[2],'w',encoding='utf-8').write('\n\n---\n\n'.join(pages))"#.into(), xml.display().to_string(), path.display().to_string()], &dir);
+            }
+            if ensure_file(&path).is_err() {
+                crate::features::office::pdf_to_markdown_fallback(&input, &dir, &path)?;
+            }
             ensure_file(&path)?;
             return Ok((path, "text/markdown; charset=utf-8"));
         }
@@ -239,33 +261,7 @@ open(sys.argv[2],'w',encoding='utf-8').write('\n\n---\n\n'.join(pages))"#.into()
                 return Err("veraPDF did not confirm PDF/A compliance".into());
             }
         }
-        "scan-to-pdf" => {
-            let language = string_option(options, "language").unwrap_or("eng");
-            if language.is_empty()
-                || language.len() > 80
-                || !language
-                    .bytes()
-                    .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'+')
-            {
-                return Err("Invalid OCR language code".into());
-            }
-            let mut args = vec![
-                "--skip-text".into(),
-                "--output-type".into(),
-                "pdf".into(),
-                "--optimize".into(),
-                "0".into(),
-                "--language".into(),
-                language.into(),
-            ];
-            match string_option(options, "deskew").unwrap_or("false") {
-                "true" => args.push("--deskew".into()),
-                "false" => {}
-                _ => return Err("deskew must be true or false".into()),
-            }
-            args.extend([input.display().to_string(), out.display().to_string()]);
-            command("ocrmypdf", &args, &dir)?;
-        }
+        "scan-to-pdf" | "ocr-pdf" => run_ocr(&input, options, &dir, &out)?,
         "repair" => {
             // MuPDF rebuilds recoverable xref tables and streams, it cannot recover missing bytes.
             command(
@@ -374,8 +370,43 @@ fn command_output(program: &str, args: &[String], dir: &Path) -> Res<String> {
         ))
     }
 }
-fn office_pdf(input: &Path, dir: &Path, out: &Path) -> Res<()> {
+fn run_ocr(input: &Path, options: &Value, dir: &Path, out: &Path) -> Res<()> {
+    let language = string_option(options, "language").unwrap_or("eng");
+    if language.is_empty()
+        || language.len() > 80
+        || !language
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'+')
+    {
+        return Err("Invalid OCR language code".into());
+    }
+    let force_mode = match string_option(options, "force_ocr").unwrap_or("false") {
+        "true" => "--force-ocr",
+        _ => "--skip-text",
+    };
+    let mut args = vec![
+        force_mode.into(),
+        "--output-type".into(),
+        "pdf".into(),
+        "--optimize".into(),
+        "0".into(),
+        "--language".into(),
+        language.into(),
+    ];
+    match string_option(options, "deskew").unwrap_or("false") {
+        "true" => args.push("--deskew".into()),
+        "false" => {}
+        _ => return Err("deskew must be true or false".into()),
+    }
+    args.extend([input.display().to_string(), out.display().to_string()]);
+    command("ocrmypdf", &args, dir)
+}
+
+pub(crate) fn try_libreoffice_pdf(input: &Path, dir: &Path, out: &Path) -> Res<()> {
     let converted = dir.join("office-output");
+    if converted.exists() {
+        let _ = fs::remove_dir_all(&converted);
+    }
     fs::create_dir(&converted).map_err(|e| e.to_string())?;
     let profile = dir.join("office-profile");
     fs::create_dir_all(profile.join("user")).map_err(|e| e.to_string())?;
@@ -392,7 +423,9 @@ fn office_pdf(input: &Path, dir: &Path, out: &Path) -> Res<()> {
         args.push("--infilter=Text (encoded):UTF8,LF,Liberation Mono,en-US".into());
     }
     args.push(input.display().to_string());
-    command("libreoffice", &args, dir)?;
+    if command("libreoffice", &args, dir).is_err() {
+        command("soffice", &args, dir)?;
+    }
     let produced = converted
         .join(input.file_stem().ok_or("Missing filename")?)
         .with_extension("pdf");
@@ -416,8 +449,7 @@ fn pdf_text(input: &Path, dir: &Path, filename: &str) -> Res<String> {
 }
 
 /// Deliberately not a browser: discard all markup, scripts, styles, URLs and embedded assets.
-#[cfg(test)]
-fn html_text(source: &str) -> String {
+pub(crate) fn html_text(source: &str) -> String {
     let mut text = String::new();
     let mut rest = source;
     let mut hidden: Option<String> = None;

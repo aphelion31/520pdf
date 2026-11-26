@@ -44,7 +44,7 @@ export default function Home() {
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search 28 PDF tools…"
+              placeholder="Search 36 PDF tools…"
               aria-label="Search PDF tools"
               className="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] py-2.5 pr-4 pl-10 text-sm text-[var(--ink-primary)] placeholder:text-[var(--ink-muted)] focus:border-[var(--accent)] focus:outline-none"
             />
@@ -123,7 +123,7 @@ export default function Home() {
         <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-3">
           {[
             { value: "1 binary", label: "Axum 0.8 + React Router 8 SPA", icon: Cpu },
-            { value: "28 tools", label: "12 core local + 16 workbench tools", icon: Layers },
+            { value: "36 tools", label: "13 core local + 23 PDF & Office tools", icon: Layers },
             { value: "0 MB", label: "No Node or Python runtime needed", icon: Zap },
           ].map((stat) => {
             const StatIcon = stat.icon;

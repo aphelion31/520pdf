@@ -193,6 +193,7 @@ fn has_inline_payload(tool: &str, options: &HashMap<String, String>) -> bool {
         "equation-to-image" => options
             .get("expression")
             .is_some_and(|v| !v.trim().is_empty()),
+        "html-to-pdf" => options.get("html").is_some_and(|v| !v.trim().is_empty()),
         _ => false,
     }
 }
@@ -313,8 +314,13 @@ async fn process(
             if options.len() >= 30 {
                 return error(StatusCode::BAD_REQUEST, "Too many options");
             }
+            let max_opt_len = match name.as_str() {
+                "annotations" => 8_000_000,
+                "html" => 2_000_000,
+                _ => 200_000,
+            };
             match field.text().await {
-                Ok(v) if v.len() <= 200_000 => {
+                Ok(v) if v.len() <= max_opt_len => {
                     options.insert(name, v);
                 }
                 _ => return error(StatusCode::BAD_REQUEST, "Invalid option"),
@@ -384,9 +390,20 @@ async fn process(
                     | "forms"
                     | "sign"
                     | "image-to-pdf"
+                    | "edit-pdf"
             )
         {
             crate::tools::run(&tool, &inputs, &options, dir.path())
+        } else if matches!(
+            tool.as_str(),
+            "pdf-to-word"
+                | "pdf-to-powerpoint"
+                | "pdf-to-excel"
+                | "word-to-pdf"
+                | "powerpoint-to-pdf"
+                | "excel-to-pdf"
+        ) {
+            crate::features::office::run(&tool, &inputs, &options, dir.path())
         } else if matches!(tool.as_str(), "pdf-to-image" | "compress-image") {
             crate::features::new_media::run(&tool, &inputs, &options, dir.path())
         } else if matches!(tool.as_str(), "resume-builder" | "latex-resume") {
@@ -463,6 +480,7 @@ fn tool_route(id: &str) -> String {
         "watermark" => "/watermark-pdf".into(),
         "protect" => "/lock-pdf".into(),
         "sign" => "/sign-pdf".into(),
+        "edit-pdf" => "/edit-pdf".into(),
         "equation-to-image" => "/equation-to-image".into(),
         "latex-resume" => "/latex-resume".into(),
         "resume-builder" => "/resume-builder".into(),
@@ -507,7 +525,7 @@ pub fn catalog() -> Value {
         (
             "pdf-to-image",
             "PDF to Image",
-            "Export selected PDF pages as PNG, JPG, or WebP images.",
+            "Export PDF pages as PNG, JPG, or WebP images or extract embedded images.",
             "Convert",
             ".pdf",
             false,
@@ -579,8 +597,16 @@ pub fn catalog() -> Value {
         (
             "rotate",
             "Rotate PDF",
-            "Rotate selected document pages 90, 180, or 270 degrees.",
+            "Rotate one or multiple PDFs 90, 180, or 270 degrees.",
             "Organize",
+            ".pdf",
+            true,
+        ),
+        (
+            "edit-pdf",
+            "Edit PDF",
+            "Add text, highlights, shapes, freehand drawings, and images onto PDF pages.",
+            "Edit",
             ".pdf",
             false,
         ),
@@ -614,6 +640,62 @@ pub fn catalog() -> Value {
             "Convert Word, PowerPoint, and spreadsheet files to PDF.",
             "Convert",
             ".doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt",
+            false,
+        ),
+        (
+            "pdf-to-word",
+            "PDF to Word",
+            "Convert PDF documents into editable Word (.docx) files locally.",
+            "Convert",
+            ".pdf",
+            false,
+        ),
+        (
+            "pdf-to-powerpoint",
+            "PDF to PowerPoint",
+            "Turn PDF pages into PowerPoint (.pptx) slides (visual or editable text).",
+            "Convert",
+            ".pdf",
+            false,
+        ),
+        (
+            "pdf-to-excel",
+            "PDF to Excel",
+            "Extract PDF tables and text into Excel (.xlsx) spreadsheets.",
+            "Convert",
+            ".pdf",
+            false,
+        ),
+        (
+            "word-to-pdf",
+            "Word to PDF",
+            "Convert Word (.docx, .doc, .odt, .rtf) documents into PDF.",
+            "Convert",
+            ".doc,.docx,.odt,.rtf",
+            false,
+        ),
+        (
+            "powerpoint-to-pdf",
+            "PowerPoint to PDF",
+            "Convert PowerPoint (.pptx, .ppt, .odp) slideshows into PDF.",
+            "Convert",
+            ".ppt,.pptx,.odp",
+            false,
+        ),
+        (
+            "excel-to-pdf",
+            "Excel to PDF",
+            "Convert Excel (.xlsx, .xls, .ods, .csv) spreadsheets into PDF.",
+            "Convert",
+            ".xls,.xlsx,.ods,.csv",
+            false,
+        ),
+        (
+            "ocr-pdf",
+            "OCR PDF",
+            "Make scanned PDFs searchable and selectable with local OCR.",
+            "Convert",
+            ".pdf",
             false,
         ),
         (
@@ -702,6 +784,15 @@ pub fn catalog() -> Value {
         .map(|(id, name, desc, cat, accept, multiple)| {
             let fields = match id {
                 "pdf-to-image" => vec![
+                    select_field(
+                        "mode",
+                        "Conversion mode",
+                        "pages",
+                        &[
+                            ("pages", "Convert every page to image"),
+                            ("extract", "Extract embedded images"),
+                        ],
+                    ),
                     field("pages", "Pages (blank means all)", "text", ""),
                     select_field(
                         "dpi",
@@ -962,6 +1053,46 @@ pub fn catalog() -> Value {
                     ),
                     field("deskew", "Straighten scanned pages", "checkbox", "true"),
                 ],
+                "ocr-pdf" => vec![
+                    select_field(
+                        "language",
+                        "OCR language",
+                        "eng",
+                        &[
+                            ("eng", "English (eng)"),
+                            ("ind", "Indonesian (ind)"),
+                            ("vie", "Vietnamese (vie)"),
+                            ("ind+eng", "Indonesian + English (ind+eng)"),
+                        ],
+                    ),
+                    field("deskew", "Straighten scanned pages", "checkbox", "true"),
+                    field("force_ocr", "Force OCR on all pages", "checkbox", "false"),
+                ],
+                "pdf-to-powerpoint" => vec![select_field(
+                    "mode",
+                    "Slide style",
+                    "visual",
+                    &[
+                        ("visual", "Visual page slides (exact layout)"),
+                        ("editable", "Editable text boxes"),
+                    ],
+                )],
+                "pdf-to-excel" => vec![select_field(
+                    "merge_sheets",
+                    "Worksheet layout",
+                    "false",
+                    &[
+                        ("false", "One worksheet per PDF page"),
+                        ("true", "Merge all pages into one sheet"),
+                    ],
+                )],
+                "html-to-pdf" => vec![field(
+                    "html",
+                    "Or paste inline HTML (offline, no external URLs)",
+                    "textarea",
+                    "",
+                )],
+                "edit-pdf" => vec![field("annotations", "Annotations JSON", "textarea", "[]")],
                 "summarize" | "translate" => vec![
                     field("target_language", "Translation language", "text", "English"),
                     field("summary_language", "Summary language", "text", "English"),
@@ -1023,10 +1154,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_has_28_tools_and_routes() {
+    fn catalog_has_36_tools_and_routes() {
         let cat = catalog();
         let tools = cat["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 28);
+        assert_eq!(tools.len(), 36);
         assert!(
             tools
                 .iter()
@@ -1036,6 +1167,16 @@ mod tests {
             tools
                 .iter()
                 .any(|t| t["id"] == "merge" && t["route"] == "/merge-pdfs")
+        );
+        assert!(
+            tools
+                .iter()
+                .any(|t| t["id"] == "edit-pdf" && t["route"] == "/edit-pdf")
+        );
+        assert!(
+            tools
+                .iter()
+                .any(|t| t["id"] == "pdf-to-word" && t["route"] == "/tools/pdf-to-word")
         );
     }
 
@@ -1074,7 +1215,7 @@ mod tests {
             .json()
             .await
             .unwrap();
-        assert_eq!(tools_body["tools"].as_array().unwrap().len(), 28);
+        assert_eq!(tools_body["tools"].as_array().unwrap().len(), 36);
 
         let spa_html = reqwest::Client::new()
             .get(format!("{base}/resume-builder"))

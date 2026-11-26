@@ -13,6 +13,8 @@ const PDF_QUICK_ACTIONS = [
   { toolId: "watermark", label: "Watermark", to: "/watermark-pdf" },
   { toolId: "protect", label: "Protect", to: "/lock-pdf" },
   { toolId: "sign", label: "Sign PDF", to: "/sign-pdf" },
+  { toolId: "edit-pdf", label: "Edit PDF", to: "/edit-pdf" },
+  { toolId: "pdf-to-word", label: "PDF to Word", to: "/tools/pdf-to-word" },
 ];
 
 const IMAGE_QUICK_ACTIONS = [
@@ -52,8 +54,8 @@ export function DropHero() {
         </h1>
         <p className="mt-3 text-base text-[var(--ink-secondary)]">
           In Mandarin, <strong className="font-semibold text-[var(--ink-primary)]">520</strong> sounds
-          like <em>wǒ ài nǐ</em> (&ldquo;I love you&rdquo;). Drop files once and jump across 28 PDF,
-          image, math, and resume tools without re-uploading.
+          like <em>wǒ ài nǐ</em> (&ldquo;I love you&rdquo;). Drop files once and jump across 36 PDF,
+          Office, image, math, and resume tools without re-uploading.
         </p>
       </div>
 
@@ -84,7 +86,7 @@ export function DropHero() {
           ref={inputRef}
           type="file"
           multiple
-          accept=".pdf,application/pdf,image/*,.json,.tex,.txt,.html,.htm,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt"
+          accept=".pdf,application/pdf,image/*,.json,.tex,.txt,.html,.htm,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.odt,.odp,.ods,.csv,.rtf"
           className="hidden"
           onChange={(e) => {
             const picked = Array.from(e.target.files ?? []);

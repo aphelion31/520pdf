@@ -28,7 +28,18 @@ pub fn run(
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     match tool {
         "compress-image" => compress(&files[0], options, dir),
-        "pdf-to-image" => rasterize(&files[0], options, dir),
+        "pdf-to-image" => {
+            let mode = options
+                .get("mode")
+                .map(|s| s.trim().to_ascii_lowercase())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "pages".into());
+            match mode.as_str() {
+                "pages" => rasterize(&files[0], options, dir),
+                "extract" => extract_embedded_images(&files[0], options, dir),
+                _ => Err("mode must be pages or extract".into()),
+            }
+        }
         _ => Err("Unknown media tool".into()),
     }
 }
@@ -391,6 +402,182 @@ fn rasterize(
     Ok((out, "application/zip".into()))
 }
 
+fn encode_extracted_image(bytes: &[u8], format: &str) -> Result<(Vec<u8>, &'static str), String> {
+    let out_ext = match format {
+        "png" => "png",
+        "jpg" | "jpeg" => "jpg",
+        "webp" => "webp",
+        _ => return Err("format must be png, jpeg, or webp".into()),
+    };
+    let img = image::load_from_memory(bytes).map_err(|e| format!("Decode image: {e}"))?;
+    let data = match out_ext {
+        "jpg" => encode_jpeg(&img, 90)?,
+        "webp" => encode_format(&img, ImageFormat::WebP)?,
+        _ => encode_format(&img, ImageFormat::Png)?,
+    };
+    Ok((data, out_ext))
+}
+
+fn extract_embedded_images(
+    input: &Path,
+    options: &HashMap<String, String>,
+    dir: &Path,
+) -> Result<(PathBuf, String), String> {
+    use lopdf::Object;
+    let format = options
+        .get("format")
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "png".into());
+    if !matches!(format.as_str(), "png" | "jpg" | "jpeg" | "webp") {
+        return Err("format must be png, jpeg, or webp".into());
+    }
+
+    let doc = lopdf::Document::load(input).map_err(|e| format!("Invalid PDF: {e}"))?;
+    let pages = doc.get_pages();
+    if pages.is_empty() {
+        return Err("PDF has no pages".into());
+    }
+    let selected = parse_pages(options.get("pages").map(String::as_str), pages.len())?;
+
+    let mut image_ids = Vec::new();
+    let mut seen_ids = HashSet::new();
+    for page_num in selected {
+        let Some(&page_id) = pages.get(&(page_num as u32)) else {
+            continue;
+        };
+        let Ok((res_dict, _)) = doc.get_page_resources(page_id) else {
+            continue;
+        };
+        let Some(res) = res_dict else { continue };
+        let Ok(xobj) = res.get(b"XObject") else {
+            continue;
+        };
+        let Ok((_, xobj_obj)) = doc.dereference(xobj) else {
+            continue;
+        };
+        let Ok(xdict) = xobj_obj.as_dict() else {
+            continue;
+        };
+        for (_, val) in xdict.iter() {
+            if let Ok(obj_id) = val.as_reference()
+                && seen_ids.insert(obj_id)
+                && let Ok(stream) = doc.get_object(obj_id).and_then(Object::as_stream)
+                && stream
+                    .dict
+                    .get(b"Subtype")
+                    .ok()
+                    .and_then(|o| o.as_name().ok())
+                    == Some(b"Image")
+            {
+                image_ids.push(obj_id);
+            }
+        }
+    }
+
+    // Also pick up embedded images inside Form XObjects when page Resources don't expose them directly.
+    if image_ids.is_empty() {
+        for (&id, obj) in &doc.objects {
+            if seen_ids.insert(id)
+                && let Ok(stream) = obj.as_stream()
+                && stream
+                    .dict
+                    .get(b"Subtype")
+                    .ok()
+                    .and_then(|o| o.as_name().ok())
+                    == Some(b"Image")
+                && !stream.dict.has(b"ImageMask")
+            {
+                image_ids.push(id);
+            }
+        }
+    }
+
+    let out = dir.join("extracted-images.zip");
+    let file = fs::File::create(&out).map_err(|e| e.to_string())?;
+    let mut zip = ZipWriter::new(file);
+    let mut count = 0usize;
+
+    for obj_id in image_ids {
+        let Ok(stream) = doc.get_object(obj_id).and_then(Object::as_stream) else {
+            continue;
+        };
+        let filter_name = stream
+            .dict
+            .get(b"Filter")
+            .ok()
+            .and_then(|f| match f {
+                Object::Name(n) => Some(n.as_slice()),
+                Object::Array(a) => a.first().and_then(|o| o.as_name().ok()),
+                _ => None,
+            })
+            .unwrap_or(&[]);
+
+        let encoded = if filter_name == b"DCTDecode" {
+            if format == "jpg" || format == "jpeg" {
+                Ok((stream.content.clone(), "jpg"))
+            } else {
+                encode_extracted_image(&stream.content, &format)
+            }
+        } else if let (Ok(w), Ok(h), Ok(raw)) = (
+            stream.dict.get(b"Width").and_then(Object::as_i64),
+            stream.dict.get(b"Height").and_then(Object::as_i64),
+            stream
+                .decompressed_content()
+                .or_else(|_| Ok::<_, lopdf::Error>(stream.content.clone())),
+        ) {
+            let (w, h) = (w as u32, h as u32);
+            let cs = stream
+                .dict
+                .get(b"ColorSpace")
+                .ok()
+                .and_then(|o| o.as_name().ok())
+                .unwrap_or(b"DeviceRGB");
+            let dyn_img =
+                if w > 0 && h > 0 && cs == b"DeviceRGB" && raw.len() == (w * h * 3) as usize {
+                    image::RgbImage::from_raw(w, h, raw).map(DynamicImage::ImageRgb8)
+                } else if w > 0 && h > 0 && cs == b"DeviceGray" && raw.len() == (w * h) as usize {
+                    image::GrayImage::from_raw(w, h, raw).map(DynamicImage::ImageLuma8)
+                } else {
+                    None
+                };
+            if let Some(img) = dyn_img {
+                let out_ext = match format.as_str() {
+                    "jpg" | "jpeg" => "jpg",
+                    "webp" => "webp",
+                    _ => "png",
+                };
+                let data = match out_ext {
+                    "jpg" => encode_jpeg(&img, 90)?,
+                    "webp" => encode_format(&img, ImageFormat::WebP)?,
+                    _ => encode_format(&img, ImageFormat::Png)?,
+                };
+                Ok((data, out_ext))
+            } else {
+                Err("unsupported image stream".to_owned())
+            }
+        } else {
+            Err("unsupported image stream".to_owned())
+        };
+
+        if let Ok((data, ext)) = encoded {
+            count += 1;
+            zip.start_file(
+                format!("image-{count:03}.{ext}"),
+                SimpleFileOptions::default(),
+            )
+            .map_err(|e| e.to_string())?;
+            zip.write_all(&data).map_err(|e| e.to_string())?;
+        }
+    }
+
+    if count == 0 {
+        return Err("No extractable embedded images found in selected pages".into());
+    }
+    zip.finish().map_err(|e| e.to_string())?;
+    Ok((out, "application/zip".into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -459,5 +646,27 @@ mod tests {
         assert_eq!(parse_pages(None, 4).unwrap(), vec![1, 2, 3, 4]);
         assert_eq!(parse_pages(Some("1,3-4"), 5).unwrap(), vec![1, 3, 4]);
         assert!(parse_pages(Some("6"), 5).is_err());
+    }
+
+    #[test]
+    fn extract_embedded_images_from_pdf() {
+        let dir = tempfile::tempdir().unwrap();
+        let img_path = dir.path().join("photo.png");
+        image::RgbaImage::from_pixel(16, 12, image::Rgba([220, 40, 40, 255]))
+            .save(&img_path)
+            .unwrap();
+        let (pdf_path, _) =
+            crate::features::pdf::run("image-to-pdf", &[img_path], &HashMap::new(), dir.path())
+                .unwrap();
+        let opts = HashMap::from([
+            ("mode".into(), "extract".into()),
+            ("format".into(), "png".into()),
+        ]);
+        let (zip_path, mime) = run("pdf-to-image", &[pdf_path], &opts, dir.path()).unwrap();
+        assert_eq!(mime, "application/zip");
+        let mut zip = zip::ZipArchive::new(fs::File::open(zip_path).unwrap()).unwrap();
+        assert_eq!(zip.len(), 1);
+        let entry = zip.by_index(0).unwrap();
+        assert!(entry.name().ends_with(".png"));
     }
 }

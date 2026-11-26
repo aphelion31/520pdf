@@ -25,6 +25,48 @@ pub fn run(
     if inputs.len() > 100 {
         return Err("At most 100 inputs are supported".into());
     }
+    if tool == "rotate" && inputs.len() > 1 {
+        use std::io::Write;
+        let output = dir.join("rotated.zip");
+        if inputs.iter().any(|i| {
+            i == &output
+                || (i.canonicalize().ok().is_some()
+                    && i.canonicalize().ok() == output.canonicalize().ok())
+        }) {
+            return Err("Output would overwrite an input".into());
+        }
+        let file = std::fs::File::create(&output).map_err(err)?;
+        let mut zip = zip::ZipWriter::new(file);
+        let zip_opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (idx, path) in inputs.iter().enumerate() {
+            let mut doc = load(path)?;
+            let pages = doc.get_pages();
+            if pages.is_empty() {
+                return Err("PDF has no pages".into());
+            }
+            let selected = selection_with_duplicates(
+                options.get("pages").map(String::as_str),
+                pages.len() as u32,
+                false,
+            )?;
+            apply_rotate(&mut doc, &pages, &selected, options)?;
+            doc.prune_objects();
+            doc.compress();
+            let mut bytes = Vec::new();
+            doc.save_to(&mut bytes).map_err(err)?;
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or("document");
+            zip.start_file(format!("{stem}-{:02}.pdf", idx + 1), zip_opts)
+                .map_err(err)?;
+            zip.write_all(&bytes).map_err(err)?;
+        }
+        zip.finish().map_err(err)?;
+        return Ok((output, "application/zip".into()));
+    }
     let mut doc = if tool == "image-to-pdf" {
         images(inputs, options)?
     } else if tool == "merge" {
@@ -178,38 +220,7 @@ pub fn run(
             }
             rebuild_pages(&mut doc, &ids)?;
         }
-        "rotate" => {
-            let angle = integer(options, "angle", 90)?;
-            if angle % 90 != 0 {
-                return Err("angle must be a multiple of 90".into());
-            }
-            let rotations: HashMap<String, i64> = match options.get("rotations") {
-                Some(v) => serde_json::from_str(v)
-                    .map_err(|_| "rotations must be a JSON object mapping pages to angles")?,
-                None => HashMap::new(),
-            };
-            for key in rotations.keys() {
-                let n: u32 = key.parse().map_err(|_| "Invalid rotation page")?;
-                if !selected.contains(&n) {
-                    return Err("Rotation page must be selected".into());
-                }
-            }
-            for n in selected {
-                let page_angle = rotations.get(&n.to_string()).copied().unwrap_or(angle);
-                if page_angle % 90 != 0 {
-                    return Err("rotation angles must be multiples of 90".into());
-                }
-                let id = pages[&n];
-                let old = inherited(&doc, id, b"Rotate")?
-                    .unwrap_or(0.into())
-                    .as_i64()
-                    .map_err(err)?;
-                doc.get_dictionary_mut(id).map_err(err)?.set(
-                    "Rotate",
-                    (old.rem_euclid(360) + page_angle.rem_euclid(360)).rem_euclid(360),
-                );
-            }
-        }
+        "rotate" => apply_rotate(&mut doc, &pages, &selected, options)?,
         "crop" => {
             let margins = options.contains_key("margin_top")
                 || options.contains_key("margin_bottom")
@@ -349,6 +360,7 @@ pub fn run(
         }
         "forms" => fill_forms(&mut doc, options)?,
         "protect" => visual_protect(&mut doc, &pages, &selected, options)?,
+        "edit-pdf" => apply_edit_pdf(&mut doc, &pages, options)?,
         _ => return Err(format!("Unsupported PDF tool: {tool}")),
     }
     doc.prune_objects();
@@ -576,6 +588,17 @@ fn latin_text(text: &str) -> Result<Vec<u8>> {
     }
     Ok(text.as_bytes().to_vec())
 }
+fn parse_hex_color_str(raw: &str) -> Result<(f32, f32, f32)> {
+    let hex = raw.trim().strip_prefix('#').unwrap_or(raw.trim());
+    if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("color must be a 6-digit hex color like #E63228".into());
+    }
+    let r = u8::from_str_radix(&hex[0..2], 16).map_err(err)? as f32 / 255.0;
+    let g = u8::from_str_radix(&hex[2..4], 16).map_err(err)? as f32 / 255.0;
+    let b = u8::from_str_radix(&hex[4..6], 16).map_err(err)? as f32 / 255.0;
+    Ok((r, g, b))
+}
+
 fn parse_hex_rgb(options: &Options, default_gray: f32) -> Result<(f32, f32, f32)> {
     let Some(raw) = options
         .get("color")
@@ -584,14 +607,7 @@ fn parse_hex_rgb(options: &Options, default_gray: f32) -> Result<(f32, f32, f32)
     else {
         return Ok((default_gray, default_gray, default_gray));
     };
-    let hex = raw.strip_prefix('#').unwrap_or(raw);
-    if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err("color must be a 6-digit hex color like #E63228".into());
-    }
-    let r = u8::from_str_radix(&hex[0..2], 16).map_err(err)? as f32 / 255.0;
-    let g = u8::from_str_radix(&hex[2..4], 16).map_err(err)? as f32 / 255.0;
-    let b = u8::from_str_radix(&hex[4..6], 16).map_err(err)? as f32 / 255.0;
-    Ok((r, g, b))
+    parse_hex_color_str(raw)
 }
 
 fn watermark_grid_positions(
@@ -1060,6 +1076,435 @@ fn visual_protect(
                 .map_err(err)?
                 .set("Contents", contents);
         }
+    }
+    Ok(())
+}
+
+fn apply_rotate(
+    doc: &mut Document,
+    pages: &std::collections::BTreeMap<u32, ObjectId>,
+    selected: &[u32],
+    options: &Options,
+) -> Result<()> {
+    let angle = integer(options, "angle", 90)?;
+    if angle % 90 != 0 {
+        return Err("angle must be a multiple of 90".into());
+    }
+    let rotations: HashMap<String, i64> = match options.get("rotations") {
+        Some(v) => serde_json::from_str(v)
+            .map_err(|_| "rotations must be a JSON object mapping pages to angles")?,
+        None => HashMap::new(),
+    };
+    for key in rotations.keys() {
+        let n: u32 = key.parse().map_err(|_| "Invalid rotation page")?;
+        if !selected.contains(&n) {
+            return Err("Rotation page must be selected".into());
+        }
+    }
+    for &n in selected {
+        let page_angle = rotations.get(&n.to_string()).copied().unwrap_or(angle);
+        if page_angle % 90 != 0 {
+            return Err("rotation angles must be multiples of 90".into());
+        }
+        let id = pages[&n];
+        let old = inherited(doc, id, b"Rotate")?
+            .unwrap_or(0.into())
+            .as_i64()
+            .map_err(err)?;
+        doc.get_dictionary_mut(id).map_err(err)?.set(
+            "Rotate",
+            (old.rem_euclid(360) + page_angle.rem_euclid(360)).rem_euclid(360),
+        );
+    }
+    Ok(())
+}
+
+fn apply_edit_pdf(
+    doc: &mut Document,
+    pages: &std::collections::BTreeMap<u32, ObjectId>,
+    options: &Options,
+) -> Result<()> {
+    let raw = options
+        .get("annotations")
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .ok_or("Provide at least one edit annotation")?;
+    let items: Vec<serde_json::Value> =
+        serde_json::from_str(raw).map_err(|_| "annotations must be a valid JSON array")?;
+    if items.is_empty() || items.len() > 500 {
+        return Err("Provide 1 to 500 annotations".into());
+    }
+
+    let mut by_page: HashMap<u32, Vec<&serde_json::Value>> = HashMap::new();
+    for item in &items {
+        let page_num = item.get("page").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
+        if !pages.contains_key(&page_num) {
+            return Err(format!("Annotation references invalid page {page_num}"));
+        }
+        by_page.entry(page_num).or_default().push(item);
+    }
+
+    let font =
+        doc.add_object(dictionary! {"Type"=>"Font","Subtype"=>"Type1","BaseFont"=>"Helvetica"});
+
+    let f32_field = |v: &serde_json::Value, key: &str, def: f32| -> Result<f32> {
+        match v.get(key) {
+            Some(n) => {
+                let x = n
+                    .as_f64()
+                    .ok_or_else(|| format!("annotation {key} must be numeric"))?
+                    as f32;
+                if !x.is_finite() || x.abs() > 20_000. {
+                    return Err(format!("annotation {key} is out of range"));
+                }
+                Ok(x)
+            }
+            None => Ok(def),
+        }
+    };
+
+    for (page_num, page_items) in by_page {
+        let id = pages[&page_num];
+        let bounds = page_box(doc, id)?;
+        let mut ops: Vec<Operation> = Vec::new();
+        let mut ext_states = Dictionary::new();
+        let mut xobjects = Dictionary::new();
+
+        for (idx, item) in page_items.iter().enumerate() {
+            let kind = item
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase();
+            let default_color = if kind == "highlight" {
+                "#facc15"
+            } else {
+                "#111318"
+            };
+            let color = item
+                .get("color")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or(default_color);
+            let rgb = parse_hex_color_str(color)?;
+            let fill_rgb = item
+                .get("fill_color")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .map(parse_hex_color_str)
+                .transpose()?;
+            let default_opacity = if kind == "highlight" { 0.35 } else { 1.0 };
+            let opacity = f32_field(item, "opacity", default_opacity)?;
+            if !(0. ..=1.).contains(&opacity) {
+                return Err("annotation opacity must be between 0 and 1".into());
+            }
+            let lw = f32_field(item, "stroke_width", 2.0)?.clamp(0.25, 40.0);
+
+            let gs_name = format!("EditGs{idx}");
+            ext_states.set(
+                gs_name.as_bytes(),
+                dictionary! {"Type"=>"ExtGState","ca"=>opacity,"CA"=>opacity},
+            );
+
+            ops.push(Operation::new("q", vec![]));
+            ops.push(Operation::new(
+                "gs",
+                vec![Object::Name(gs_name.into_bytes())],
+            ));
+
+            match kind.as_str() {
+                "text" => {
+                    let text = item
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .ok_or("text annotation cannot be empty")?;
+                    let safe: String = text
+                        .chars()
+                        .take(1024)
+                        .map(|c| match c {
+                            '\u{2013}' | '\u{2014}' => '-',
+                            '\u{2018}' | '\u{2019}' => '\'',
+                            '\u{201C}' | '\u{201D}' => '"',
+                            c if (' '..='~').contains(&c) => c,
+                            _ => '?',
+                        })
+                        .collect();
+                    let size = f32_field(item, "font_size", 16.0)?.clamp(6.0, 200.0);
+                    let x = f32_field(item, "x", bounds[0] + 40.)?;
+                    let y = f32_field(item, "y", bounds[1] + 40.)?;
+                    ops.push(Operation::new(
+                        "rg",
+                        vec![rgb.0.into(), rgb.1.into(), rgb.2.into()],
+                    ));
+                    ops.push(Operation::new("BT", vec![]));
+                    ops.push(Operation::new(
+                        "Tf",
+                        vec![Object::Name(b"ToolFont".to_vec()), size.into()],
+                    ));
+                    ops.push(Operation::new("Td", vec![x.into(), y.into()]));
+                    ops.push(Operation::new("Tj", vec![Object::string_literal(safe)]));
+                    ops.push(Operation::new("ET", vec![]));
+                }
+                "highlight" => {
+                    let x = f32_field(item, "x", bounds[0] + 36.)?;
+                    let y = f32_field(item, "y", bounds[1] + 36.)?;
+                    let w = f32_field(item, "width", 120.)?.max(1.0);
+                    let h = f32_field(item, "height", 20.)?.max(1.0);
+                    ops.push(Operation::new(
+                        "rg",
+                        vec![rgb.0.into(), rgb.1.into(), rgb.2.into()],
+                    ));
+                    ops.push(Operation::new(
+                        "re",
+                        vec![x.into(), y.into(), w.into(), h.into()],
+                    ));
+                    ops.push(Operation::new("f", vec![]));
+                }
+                "rect" => {
+                    let x = f32_field(item, "x", bounds[0] + 36.)?;
+                    let y = f32_field(item, "y", bounds[1] + 36.)?;
+                    let w = f32_field(item, "width", 100.)?.max(1.0);
+                    let h = f32_field(item, "height", 60.)?.max(1.0);
+                    if let Some(fill) = fill_rgb {
+                        ops.push(Operation::new(
+                            "rg",
+                            vec![fill.0.into(), fill.1.into(), fill.2.into()],
+                        ));
+                    }
+                    ops.push(Operation::new(
+                        "RG",
+                        vec![rgb.0.into(), rgb.1.into(), rgb.2.into()],
+                    ));
+                    ops.push(Operation::new("w", vec![lw.into()]));
+                    ops.push(Operation::new(
+                        "re",
+                        vec![x.into(), y.into(), w.into(), h.into()],
+                    ));
+                    ops.push(Operation::new(
+                        if fill_rgb.is_some() { "B" } else { "S" },
+                        vec![],
+                    ));
+                }
+                "ellipse" => {
+                    let x = f32_field(item, "x", bounds[0] + 36.)?;
+                    let y = f32_field(item, "y", bounds[1] + 36.)?;
+                    let w = f32_field(item, "width", 80.)?.max(2.0);
+                    let h = f32_field(item, "height", 80.)?.max(2.0);
+                    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+                    let (rx, ry) = (w / 2.0, h / 2.0);
+                    let k = 0.552_284_8_f32;
+                    let (ox, oy) = (rx * k, ry * k);
+                    if let Some(fill) = fill_rgb {
+                        ops.push(Operation::new(
+                            "rg",
+                            vec![fill.0.into(), fill.1.into(), fill.2.into()],
+                        ));
+                    }
+                    ops.push(Operation::new(
+                        "RG",
+                        vec![rgb.0.into(), rgb.1.into(), rgb.2.into()],
+                    ));
+                    ops.push(Operation::new("w", vec![lw.into()]));
+                    ops.push(Operation::new("m", vec![(cx + rx).into(), cy.into()]));
+                    ops.push(Operation::new(
+                        "c",
+                        vec![
+                            (cx + rx).into(),
+                            (cy + oy).into(),
+                            (cx + ox).into(),
+                            (cy + ry).into(),
+                            cx.into(),
+                            (cy + ry).into(),
+                        ],
+                    ));
+                    ops.push(Operation::new(
+                        "c",
+                        vec![
+                            (cx - ox).into(),
+                            (cy + ry).into(),
+                            (cx - rx).into(),
+                            (cy + oy).into(),
+                            (cx - rx).into(),
+                            cy.into(),
+                        ],
+                    ));
+                    ops.push(Operation::new(
+                        "c",
+                        vec![
+                            (cx - rx).into(),
+                            (cy - oy).into(),
+                            (cx - ox).into(),
+                            (cy - ry).into(),
+                            cx.into(),
+                            (cy - ry).into(),
+                        ],
+                    ));
+                    ops.push(Operation::new(
+                        "c",
+                        vec![
+                            (cx + ox).into(),
+                            (cy - ry).into(),
+                            (cx + rx).into(),
+                            (cy - oy).into(),
+                            (cx + rx).into(),
+                            cy.into(),
+                        ],
+                    ));
+                    ops.push(Operation::new(
+                        if fill_rgb.is_some() { "B" } else { "S" },
+                        vec![],
+                    ));
+                }
+                "line" => {
+                    let x1 = f32_field(item, "x1", bounds[0] + 36.)?;
+                    let y1 = f32_field(item, "y1", bounds[1] + 36.)?;
+                    let x2 = f32_field(item, "x2", x1 + 100.)?;
+                    let y2 = f32_field(item, "y2", y1 + 40.)?;
+                    ops.push(Operation::new(
+                        "RG",
+                        vec![rgb.0.into(), rgb.1.into(), rgb.2.into()],
+                    ));
+                    ops.push(Operation::new("w", vec![lw.into()]));
+                    ops.push(Operation::new("J", vec![1.into()]));
+                    ops.push(Operation::new("m", vec![x1.into(), y1.into()]));
+                    ops.push(Operation::new("l", vec![x2.into(), y2.into()]));
+                    ops.push(Operation::new("S", vec![]));
+                }
+                "path" => {
+                    let pts = item
+                        .get("points")
+                        .and_then(|v| v.as_array())
+                        .filter(|a| a.len() >= 2 && a.len() <= 2000)
+                        .ok_or("path annotation needs 2..2000 points")?;
+                    ops.push(Operation::new(
+                        "RG",
+                        vec![rgb.0.into(), rgb.1.into(), rgb.2.into()],
+                    ));
+                    ops.push(Operation::new("w", vec![lw.into()]));
+                    ops.push(Operation::new("J", vec![1.into()]));
+                    ops.push(Operation::new("j", vec![1.into()]));
+                    for (p_i, p) in pts.iter().enumerate() {
+                        let pair = p
+                            .as_array()
+                            .filter(|a| a.len() >= 2)
+                            .ok_or("path point must be [x, y]")?;
+                        let px = pair[0].as_f64().ok_or("invalid point x")? as f32;
+                        let py = pair[1].as_f64().ok_or("invalid point y")? as f32;
+                        if !px.is_finite() || !py.is_finite() {
+                            return Err("path coordinate not finite".into());
+                        }
+                        ops.push(Operation::new(
+                            if p_i == 0 { "m" } else { "l" },
+                            vec![px.into(), py.into()],
+                        ));
+                    }
+                    ops.push(Operation::new("S", vec![]));
+                }
+                "image" => {
+                    let encoded = item
+                        .get("image_base64")
+                        .and_then(|v| v.as_str())
+                        .ok_or("image annotation requires image_base64")?;
+                    let b64 = encoded.split(',').next_back().unwrap_or(encoded);
+                    if b64.len() > 8_000_000 {
+                        return Err("Embedded image exceeds size limit".into());
+                    }
+                    let img_bytes = base64::engine::general_purpose::STANDARD
+                        .decode(b64)
+                        .map_err(|_| "Invalid image_base64")?;
+                    let rgba = image::load_from_memory(&img_bytes)
+                        .map_err(|e| format!("Invalid image: {e}"))?
+                        .to_rgba8();
+                    let (w_px, h_px) = rgba.dimensions();
+                    if w_px == 0 || h_px == 0 || u64::from(w_px) * u64::from(h_px) > 8_000_000 {
+                        return Err("Invalid image dimensions".into());
+                    }
+                    let mut rgb_data = Vec::with_capacity(w_px as usize * h_px as usize * 3);
+                    let mut alpha_data = Vec::with_capacity(w_px as usize * h_px as usize);
+                    for p in rgba.pixels() {
+                        rgb_data.extend_from_slice(&p.0[..3]);
+                        alpha_data.push(p.0[3]);
+                    }
+                    let mask_id = doc.add_object(Stream::new(
+                        dictionary! {"Type"=>"XObject","Subtype"=>"Image","Width"=>w_px as i64,"Height"=>h_px as i64,"ColorSpace"=>"DeviceGray","BitsPerComponent"=>8},
+                        alpha_data,
+                    ));
+                    let img_id = doc.add_object(Stream::new(
+                        dictionary! {"Type"=>"XObject","Subtype"=>"Image","Width"=>w_px as i64,"Height"=>h_px as i64,"ColorSpace"=>"DeviceRGB","BitsPerComponent"=>8,"SMask"=>mask_id},
+                        rgb_data,
+                    ));
+                    let img_name = format!("EditImg{idx}");
+                    xobjects.set(img_name.as_bytes(), img_id);
+                    let x = f32_field(item, "x", bounds[0] + 36.)?;
+                    let y = f32_field(item, "y", bounds[1] + 36.)?;
+                    let w = f32_field(item, "width", 140.)?.max(4.0);
+                    let h = f32_field(item, "height", w * h_px as f32 / w_px as f32)?.max(4.0);
+                    ops.push(Operation::new(
+                        "cm",
+                        vec![w.into(), 0.into(), 0.into(), h.into(), x.into(), y.into()],
+                    ));
+                    ops.push(Operation::new(
+                        "Do",
+                        vec![Object::Name(img_name.into_bytes())],
+                    ));
+                }
+                other => return Err(format!("Unsupported edit annotation type: {other}")),
+            }
+            ops.push(Operation::new("Q", vec![]));
+        }
+
+        let content_bytes = Content { operations: ops }.encode().map_err(err)?;
+        let mut form_res = dictionary! {
+            "Font" => dictionary! { "ToolFont" => font },
+            "ExtGState" => ext_states,
+        };
+        if !xobjects.is_empty() {
+            form_res.set("XObject", xobjects);
+        }
+        let form = doc.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "BBox" => bounds.iter().copied().map(Object::Real).collect::<Vec<_>>(),
+                "Resources" => form_res,
+            },
+            content_bytes,
+        ));
+        let mut resources = inherited(doc, id, b"Resources")?
+            .unwrap_or(Object::Dictionary(Dictionary::new()))
+            .as_dict()
+            .map_err(err)?
+            .clone();
+        let mut page_xobjs = match resources.get(b"XObject") {
+            Ok(o) => doc
+                .dereference(o)
+                .map_err(err)?
+                .1
+                .as_dict()
+                .map_err(err)?
+                .clone(),
+            Err(_) => Dictionary::new(),
+        };
+        let form_name = format!("EditOverlay{}", form.0);
+        page_xobjs.set(form_name.as_bytes(), form);
+        resources.set("XObject", page_xobjs);
+        doc.get_dictionary_mut(id)
+            .map_err(err)?
+            .set("Resources", resources);
+        let prefix = doc.add_object(Stream::new(dictionary! {}, b"q\n".to_vec()));
+        let mut contents = vec![Object::Reference(prefix)];
+        contents.extend(doc.get_page_contents(id).into_iter().map(Object::Reference));
+        let suffix = doc.add_object(Stream::new(
+            dictionary! {},
+            format!("\nQ\nq\n/{form_name} Do\nQ\n").into_bytes(),
+        ));
+        contents.push(suffix.into());
+        doc.get_dictionary_mut(id)
+            .map_err(err)?
+            .set("Contents", contents);
     }
     Ok(())
 }
@@ -1952,5 +2397,59 @@ mod tests {
         let d = load(&out).unwrap();
         let content = String::from_utf8_lossy(&d.get_page_content(d.get_pages()[&1])).into_owned();
         assert_eq!(content.matches("Do").count(), 6);
+    }
+
+    #[test]
+    fn edit_pdf_renders_text_shapes_freehand_and_images() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("doc.pdf");
+        fixture().save(&input).unwrap();
+        let img = dir.path().join("badge.png");
+        image::RgbaImage::from_pixel(6, 6, image::Rgba([30, 120, 230, 255]))
+            .save(&img)
+            .unwrap();
+        let b64 = base64::engine::general_purpose::STANDARD.encode(std::fs::read(img).unwrap());
+        let annotations = serde_json::json!([
+            {"type": "text", "page": 1, "x": 60, "y": 700, "text": "Edited Heading", "font_size": 20, "color": "#E63228"},
+            {"type": "highlight", "page": 1, "x": 60, "y": 660, "width": 180, "height": 22, "color": "#FACC15", "opacity": 0.4},
+            {"type": "rect", "page": 1, "x": 60, "y": 580, "width": 140, "height": 60, "color": "#2563EB", "stroke_width": 2},
+            {"type": "ellipse", "page": 1, "x": 220, "y": 580, "width": 80, "height": 60, "color": "#16A34A"},
+            {"type": "line", "page": 1, "x1": 60, "y1": 540, "x2": 280, "y2": 540, "color": "#111318"},
+            {"type": "path", "page": 1, "points": [[60, 500], [110, 520], [160, 495]], "color": "#7C3AED"},
+            {"type": "image", "page": 1, "x": 320, "y": 580, "width": 64, "height": 64, "image_base64": b64}
+        ]);
+        let opts = Options::from([("annotations".into(), annotations.to_string())]);
+        let (out, mime) = run("edit-pdf", &[input], &opts, dir.path()).unwrap();
+        assert_eq!(mime, "application/pdf");
+        let d = load(&out).unwrap();
+        let streams: String = d
+            .objects
+            .values()
+            .filter_map(|o| o.as_stream().ok())
+            .map(|s| {
+                let raw = s
+                    .decompressed_content()
+                    .unwrap_or_else(|_| s.content.clone());
+                String::from_utf8_lossy(&raw).into_owned()
+            })
+            .collect();
+        assert!(streams.contains("Edited Heading"));
+        assert!(streams.contains("EditOverlay"));
+        assert!(streams.contains("re"));
+        assert!(streams.contains("EditImg6"));
+    }
+
+    #[test]
+    fn rotate_multiple_pdfs_returns_zip_archive() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("alpha.pdf");
+        let b = dir.path().join("beta.pdf");
+        fixture().save(&a).unwrap();
+        fixture().save(&b).unwrap();
+        let opts = Options::from([("angle".into(), "90".into())]);
+        let (out, mime) = run("rotate", &[a, b], &opts, dir.path()).unwrap();
+        assert_eq!(mime, "application/zip");
+        let arch = zip::ZipArchive::new(std::fs::File::open(out).unwrap()).unwrap();
+        assert_eq!(arch.len(), 2);
     }
 }

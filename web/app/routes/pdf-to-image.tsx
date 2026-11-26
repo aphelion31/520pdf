@@ -13,6 +13,7 @@ export default function PdfToImage() {
     const first = match(".pdf")[0];
     return first ? [first.file] : [];
   });
+  const [mode, setMode] = useState<"pages" | "extract">("pages");
   const [pages, setPages] = useState("");
   const [dpi, setDpi] = useState(150);
   const [format, setFormat] = useState<"png" | "jpeg" | "webp">("png");
@@ -27,6 +28,7 @@ export default function PdfToImage() {
     setResult(null);
     try {
       const res = await runTool("pdf-to-image", files, {
+        mode,
         pages: pages.trim(),
         dpi: String(dpi),
         format,
@@ -42,7 +44,7 @@ export default function PdfToImage() {
   return (
     <ToolShell
       title="PDF to Image"
-      description="Rasterize PDF pages into PNG, JPEG, or WebP images bundled in a ZIP archive."
+      description="Rasterize PDF pages into images or extract embedded images directly as a ZIP archive."
       category="Convert"
     >
       <div className="surface-card space-y-6 rounded-2xl p-6">
@@ -55,7 +57,22 @@ export default function PdfToImage() {
           }}
         />
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-[var(--ink-secondary)]">
+              Mode
+            </label>
+            <BasecoatSelect
+              ariaLabel="PDF to image conversion mode"
+              value={mode}
+              onChange={(v) => setMode(v as typeof mode)}
+              options={[
+                { value: "pages", label: "Convert every page" },
+                { value: "extract", label: "Extract embedded images" },
+              ]}
+            />
+          </div>
+
           <div>
             <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
               Pages (blank = all)
@@ -69,22 +86,24 @@ export default function PdfToImage() {
             />
           </div>
 
-          <div>
-            <label className="mb-1.5 block text-xs font-semibold text-[var(--ink-secondary)]">
-              Resolution (DPI)
-            </label>
-            <BasecoatSelect
-              ariaLabel="Resolution (DPI)"
-              value={String(dpi)}
-              onChange={(v) => setDpi(Number(v))}
-              options={[
-                { value: "72", label: "72 DPI (Screen)" },
-                { value: "150", label: "150 DPI (Standard)" },
-                { value: "200", label: "200 DPI (High)" },
-                { value: "300", label: "300 DPI (Print)" },
-              ]}
-            />
-          </div>
+          {mode === "pages" && (
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-[var(--ink-secondary)]">
+                Resolution (DPI)
+              </label>
+              <BasecoatSelect
+                ariaLabel="Resolution (DPI)"
+                value={String(dpi)}
+                onChange={(v) => setDpi(Number(v))}
+                options={[
+                  { value: "72", label: "72 DPI (Screen)" },
+                  { value: "150", label: "150 DPI (Standard)" },
+                  { value: "200", label: "200 DPI (High)" },
+                  { value: "300", label: "300 DPI (Print)" },
+                ]}
+              />
+            </div>
+          )}
 
           <div>
             <label className="mb-1.5 block text-xs font-semibold text-[var(--ink-secondary)]">
@@ -116,7 +135,13 @@ export default function PdfToImage() {
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-5 py-3 text-sm font-semibold text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
-          {busy ? "Rendering pages…" : "Export Pages as ZIP"}
+          {busy
+            ? mode === "extract"
+              ? "Extracting images…"
+              : "Rendering pages…"
+            : mode === "extract"
+              ? "Extract Embedded Images as ZIP"
+              : "Export Pages as ZIP"}
         </button>
 
         {result && (

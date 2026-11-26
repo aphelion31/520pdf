@@ -27,7 +27,7 @@ export function ToolShell({ title, description, category, toolId, children }: To
           to="/"
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--ink-secondary)] hover:text-[var(--accent)]"
         >
-          <ArrowLeft className="h-3.5 w-3.5" /> All 28 tools
+          <ArrowLeft className="h-3.5 w-3.5" /> All 36 tools
         </Link>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-1 text-[11px] font-semibold text-[var(--ink-secondary)]">
           <ShieldCheck className="h-3.5 w-3.5 text-[var(--accent)]" /> Local Axum Worker · No external retention
