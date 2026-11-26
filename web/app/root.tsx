@@ -99,9 +99,14 @@ function SiteChrome({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-6">
             <Link to="/" className="flex items-center gap-2" aria-label="520pdf home">
               <img
-                src={dark ? "/brand-assets/logo_dark.svg" : "/brand-assets/logo.svg"}
-                alt="520pdf"
-                className="h-8 w-auto"
+                src="/brand-assets/logo.svg"
+                alt="520pdf — 我爱你 PDF"
+                className="h-9 w-auto dark:hidden"
+              />
+              <img
+                src="/brand-assets/logo_dark.svg"
+                alt="520pdf — 我爱你 PDF"
+                className="hidden h-9 w-auto dark:block"
               />
             </Link>
             <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">

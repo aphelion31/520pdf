@@ -120,23 +120,28 @@ export default function Home() {
           </p>
         )}
 
-        <div className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-3">
           {[
             { value: "1 binary", label: "Axum 0.8 + React Router 8 SPA", icon: Cpu },
-            { value: "28 tools", label: "12 core local engines + 16 workbench tools", icon: Layers },
-            { value: "0 MB", label: "Node / Python needed for core tools", icon: Zap },
+            { value: "28 tools", label: "12 core local + 16 workbench tools", icon: Layers },
+            { value: "0 MB", label: "No Node or Python runtime needed", icon: Zap },
           ].map((stat) => {
             const StatIcon = stat.icon;
             return (
-              <div key={stat.label} className="surface-card flex items-center gap-3.5 rounded-2xl px-5 py-4">
-                <span className="inline-grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)]">
+              <div
+                key={stat.label}
+                className="surface-card flex h-full items-center gap-4 rounded-2xl p-5"
+              >
+                <span className="inline-grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)]">
                   <StatIcon className="h-5 w-5" aria-hidden="true" />
                 </span>
-                <div>
-                  <div className="text-xl font-extrabold text-[var(--accent)] tabular-nums">
+                <div className="min-w-0 flex-1">
+                  <div className="whitespace-nowrap text-2xl leading-none font-extrabold tracking-tight text-[var(--accent)] tabular-nums">
                     {stat.value}
                   </div>
-                  <div className="text-xs text-[var(--ink-secondary)]">{stat.label}</div>
+                  <div className="mt-1.5 text-xs leading-snug text-[var(--ink-secondary)]">
+                    {stat.label}
+                  </div>
                 </div>
               </div>
             );

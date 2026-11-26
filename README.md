@@ -2,11 +2,12 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="web/public/brand-assets/logo_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="web/public/brand-assets/logo.svg">
-    <img src="web/public/brand-assets/logo.svg" alt="520pdf" height="44">
+    <img src="web/public/brand-assets/logo.svg" alt="520pdf — 我爱你 PDF" height="56">
   </picture>
 </p>
 
-<h3 align="center">The fast, private single-binary PDF & media workbench — Rust (Axum) + React Router rewrite of iHatePDF</h3>
+<h2 align="center">520pdf · 我爱你 PDF (<em>wǒ ài nǐ PDF</em> — &ldquo;I love you, PDF&rdquo; · &ldquo;Cinta PDF&rdquo;)</h2>
+<p align="center"><strong>The fast, private single-binary PDF &amp; media workbench — Rust (Axum) + React Router rewrite of iHatePDF</strong></p>
 
 <p align="center">
   <a href="https://github.com/aphelion31/520pdf/releases"><img src="https://img.shields.io/github/v/release/aphelion31/520pdf" alt="Release"></a>
@@ -16,7 +17,7 @@
   <img src="https://img.shields.io/github/license/aphelion31/520pdf" alt="MIT license">
 </p>
 
-> **Note:** **520pdf** (**我爱你 PDF**, *wǒ ài nǐ PDF* — "I love you, PDF") is a single-binary Rust rewrite and expanded workbench inspired by [iHatePDF](https://github.com/cu-sanjay/iHatePDF). The Node/Express static host is replaced by one compiled Rust server (`Axum 0.8` + `lopdf` + `mozjpeg` + `pdf-writer` + `image`), and the frontend is rebuilt with **React Router 8 + React 19 + Tailwind CSS v4 + Vite 8** (Bun `1.4.4`), served directly from `pdf520` with zero Node runtime in production. `iHatePDF` is © cu-sanjay, MIT licensed (see [`LICENSE-IHATEPDF`](LICENSE-IHATEPDF)). `520pdf` is not affiliated with iHatePDF or iLovePDF.
+> **Why 520 (我爱你 · 爱)?** In Chinese internet culture, **520** (*wǔ èr líng*) sounds like **我爱你** (*wǒ ài nǐ*, *"I love you"* / **cinta PDF**), crowned by the crimson Chinese seal **爱** (*ài*, love) on the logo. **520pdf** turns that love into a single-binary Rust + React Router 8 rewrite and expansion of [iHatePDF](https://github.com/cu-sanjay/iHatePDF): Express (`dist/index.js`) is replaced by compiled Rust (`Axum 0.8` + `lopdf` + `mozjpeg` + `pdf-writer` + `image`), and the frontend is rebuilt with **React Router 8 + React 19 + Tailwind CSS v4 + Vite 8** (Bun `1.4.4`), served directly from `pdf520` with zero Node runtime in production. `iHatePDF` is © cu-sanjay, MIT licensed (see [`LICENSE-IHATEPDF`](LICENSE-IHATEPDF)). `520pdf` is not affiliated with iHatePDF or iLovePDF.
 
 ---
 

@@ -1,6 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 184 44" fill="none">
-  <path d="M7 4H24L34 14V36A4 4 0 0 1 30 40H7A4 4 0 0 1 3 36V8A4 4 0 0 1 7 4Z" fill="#111318"/>
-  <path d="M24 4V11A3 3 0 0 0 27 14H34L24 4Z" fill="#E63228"/>
-  <path d="M18.5 31.6C13.9 28.6 11 25.6 11 22.3C11 19.8 12.9 18 15.1 18C16.6 18 17.8 18.8 18.5 20C19.2 18.8 20.4 18 21.9 18C24.1 18 26 19.8 26 22.3C26 25.6 23.1 28.6 18.5 31.6Z" fill="#FFFFFF"/>
-  <text x="44" y="29" fill="#111318" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="800" letter-spacing="-0.8">520<tspan fill="#E63228">pdf</tspan></text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 210 46" fill="none">
+  <path d="M8 3H27L38 14V37A6 6 0 0 1 32 43H8A6 6 0 0 1 2 37V9A6 6 0 0 1 8 3Z" fill="#E63228"/>
+  <path d="M8.5 7H24.5V13.5A2.5 2.5 0 0 0 27 16H34V36.5A2 2 0 0 1 32 38.5H8.5A2 2 0 0 1 6.5 36.5V9A2 2 0 0 1 8.5 7Z" stroke="#FFFFFF" stroke-opacity="0.32" stroke-width="1.2"/>
+  <path d="M27 3V11A3 3 0 0 0 30 14H38L27 3Z" fill="#991B1B"/>
+  <text x="20" y="31.5" text-anchor="middle" fill="#FFFFFF" font-family="'PingFang SC','Hiragino Sans GB','Noto Sans SC','Microsoft YaHei',sans-serif" font-size="19.5" font-weight="800">爱</text>
+  <text x="47" y="24" fill="#111318" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="800" letter-spacing="-0.8">520<tspan fill="#E63228">pdf</tspan></text>
+  <text x="48" y="39" fill="#525866" font-family="'PingFang SC','Hiragino Sans GB','Noto Sans SC',Inter,sans-serif" font-size="10.5" font-weight="700" letter-spacing="1.6">我爱你 PDF</text>
 </svg>
