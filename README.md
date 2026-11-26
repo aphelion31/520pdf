@@ -9,10 +9,11 @@
 <h3 align="center">The fast, private single-binary PDF & media workbench — Rust (Axum) + React Router rewrite of iHatePDF</h3>
 
 <p align="center">
+  <a href="https://github.com/aphelion31/520pdf/releases"><img src="https://img.shields.io/github/v/release/aphelion31/520pdf" alt="Release"></a>
   <img src="https://img.shields.io/badge/backend-Rust%20%2B%20Axum%200.8-orange" alt="Rust + Axum 0.8">
   <img src="https://img.shields.io/badge/frontend-React%20Router%208-blue" alt="React Router 8">
   <img src="https://img.shields.io/badge/auth-Argon2id-2ea043" alt="Argon2id">
-  <img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="MIT license">
+  <img src="https://img.shields.io/github/license/aphelion31/520pdf" alt="MIT license">
 </p>
 
 > **Note:** **520pdf** (**我爱你 PDF**, *wǒ ài nǐ PDF* — "I love you, PDF") is a single-binary Rust rewrite and expanded workbench inspired by [iHatePDF](https://github.com/cu-sanjay/iHatePDF). The Node/Express static host is replaced by one compiled Rust server (`Axum 0.8` + `lopdf` + `mozjpeg` + `pdf-writer` + `image`), and the frontend is rebuilt with **React Router 8 + React 19 + Tailwind CSS v4 + Vite 8** (Bun `1.4.4`), served directly from `pdf520` with zero Node runtime in production. `iHatePDF` is © cu-sanjay, MIT licensed (see [`LICENSE-IHATEPDF`](LICENSE-IHATEPDF)). `520pdf` is not affiliated with iHatePDF or iLovePDF.
