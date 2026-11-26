@@ -104,7 +104,9 @@ grep -qi '^x-compress-status:' "$TMP/headers"
 grep -qi 'filename="NPWP_520pdf_compress.pdf"' "$TMP/headers"
 TOO_LOW_CODE=$(curl -sS -o /dev/null -w '%{http_code}' -F "files=@$TMP/NPWP.pdf" -F "target_kb=100" "$BASE/api/tools/compress")
 test "$TOO_LOW_CODE" = "422"
-post_tool watermark "$TMP/watermark.pdf" -F "files=@$TMP/resume.pdf" -F "text=CONFIDENTIAL"
+post_tool watermark "$TMP/watermark.pdf" -F "files=@$TMP/NPWP.pdf" -F "text=CONFIDENTIAL" -F "color=#E63228" -F "cols=3" -F "rows=3" -F "rotation=35" -F "opacity=0.3"
+grep -qi 'filename="NPWP_520pdf_watermark.pdf"' "$TMP/headers"
+head -c 5 "$TMP/watermark.pdf" | grep -q '%PDF-'
 post_tool protect "$TMP/protected.pdf" -F "files=@$TMP/resume.pdf" -F "mode=visual" -F "watermark_text=PRIVATE" -F "remove_metadata=true"
 post_tool sign "$TMP/signed.pdf" -F "files=@$TMP/resume.pdf" -F "text=Signed by Nadia"
 

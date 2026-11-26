@@ -193,6 +193,18 @@ try {
   await page.screenshot({ path: path.join(SHOT_DIR, "sign-pdf.png"), fullPage: false });
   console.log("Captured sign-pdf.png");
 
+  // 4b. Watermark PDF (3x3 colored text watermark + live multi-tile preview)
+  await page.goto(`${BASE}/watermark-pdf`, { waitUntil: "networkidle" });
+  await page.locator('input[type="file"]').first().setInputFiles(samplePdfPath);
+  await page.getByRole("button", { name: "Watermark color Crimson" }).click();
+  await page.getByRole("combobox", { name: "Watermark quantity and layout" }).click();
+  await page.getByRole("option", { name: "3×3 Grid (9)" }).click();
+  await page.getByRole("button", { name: /Apply 9 Text Watermarks/ }).click();
+  await page.getByText(/Ready: sample-resume_520pdf_watermark\.pdf/).waitFor({ timeout: 15000 });
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(SHOT_DIR, "watermark-pdf.png"), fullPage: false });
+  console.log("Captured watermark-pdf.png");
+
   // 5. Equation to Image (BasecoatSelect + live KaTeX + PNG render)
   await page.goto(`${BASE}/equation-to-image`, { waitUntil: "networkidle" });
   const scaleSelect = page.getByRole("combobox", { name: "Render resolution scale" });
@@ -233,7 +245,7 @@ try {
   assert.deepEqual(consoleErrors, [], `console errors: ${consoleErrors.join("; ")}`);
   assert.deepEqual(pageErrors, [], `page errors: ${pageErrors.join("; ")}`);
   assert.deepEqual(failedRequests, [], `failed requests: ${failedRequests.join("; ")}`);
-  console.log("PASS: all 9 retina screenshots + zero console/page/network errors + mobile responsive");
+  console.log("PASS: all 10 retina screenshots + zero console/page/network errors + mobile responsive");
 } finally {
   await browser.close();
 }

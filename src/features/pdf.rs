@@ -260,7 +260,7 @@ pub fn run(
         "watermark" | "sign" | "page-numbers" => {
             if (tool == "sign" || tool == "watermark") && options.contains_key("image_base64") {
                 for n in selected {
-                    image_signature(&mut doc, pages[&n], options)?;
+                    image_signature(&mut doc, pages[&n], options, tool == "watermark")?;
                 }
             } else {
                 let text = options.get("text").map(String::as_str).unwrap_or("");
@@ -279,9 +279,37 @@ pub fn run(
                 if !(0..=1_000_000).contains(&start) {
                     return Err("start must be between 0 and 1000000".into());
                 }
+                let rgb = if tool == "watermark" {
+                    parse_hex_rgb(options, 0.45)?
+                } else {
+                    parse_hex_rgb(options, 0.)?
+                };
+                let rotation = number(options, "rotation", 0.)?;
+                let opacity = number(options, "opacity", 1.)?;
+                if !(0. ..=1.).contains(&opacity) {
+                    return Err("opacity must be between 0 and 1".into());
+                }
                 for (index, n) in selected.into_iter().enumerate() {
                     let id = pages[&n];
                     let bounds = page_box(&doc, id)?;
+                    let label = if tool == "page-numbers" {
+                        options
+                            .get("format")
+                            .map(String::as_str)
+                            .unwrap_or("{n}")
+                            .replace("{n}", &(start + index as i64).to_string())
+                            .replace("{total}", &pages.len().to_string())
+                    } else {
+                        text.to_string()
+                    };
+                    if tool == "watermark"
+                        && let Some(grid_pts) = watermark_grid_positions(bounds, options)?
+                    {
+                        overlay_multi(
+                            &mut doc, id, &label, &grid_pts, size, rgb, rotation, opacity, true,
+                        )?;
+                        continue;
+                    }
                     let position = options
                         .get("position")
                         .map(String::as_str)
@@ -305,31 +333,16 @@ pub fn run(
                     if x < bounds[0] || x > bounds[2] || y < bounds[1] || y > bounds[3] {
                         return Err("Text position is outside the page".into());
                     }
-                    let label = if tool == "page-numbers" {
-                        options
-                            .get("format")
-                            .map(String::as_str)
-                            .unwrap_or("{n}")
-                            .replace("{n}", &(start + index as i64).to_string())
-                            .replace("{total}", &pages.len().to_string())
-                    } else {
-                        text.to_string()
-                    };
-                    let rotation = number(options, "rotation", 0.)?;
-                    let opacity = number(options, "opacity", 1.)?;
-                    if !(0. ..=1.).contains(&opacity) {
-                        return Err("opacity must be between 0 and 1".into());
-                    }
-                    overlay(
+                    overlay_multi(
                         &mut doc,
                         id,
                         &label,
-                        x,
-                        y,
+                        &[(x, y)],
                         size,
-                        tool == "watermark",
+                        rgb,
                         rotation,
                         opacity,
+                        false,
                     )?;
                 }
             }
@@ -563,11 +576,101 @@ fn latin_text(text: &str) -> Result<Vec<u8>> {
     }
     Ok(text.as_bytes().to_vec())
 }
-fn text_content(text: &str, x: f32, y: f32, size: f32, gray: f32) -> Result<Vec<u8>> {
+fn parse_hex_rgb(options: &Options, default_gray: f32) -> Result<(f32, f32, f32)> {
+    let Some(raw) = options
+        .get("color")
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    else {
+        return Ok((default_gray, default_gray, default_gray));
+    };
+    let hex = raw.strip_prefix('#').unwrap_or(raw);
+    if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("color must be a 6-digit hex color like #E63228".into());
+    }
+    let r = u8::from_str_radix(&hex[0..2], 16).map_err(err)? as f32 / 255.0;
+    let g = u8::from_str_radix(&hex[2..4], 16).map_err(err)? as f32 / 255.0;
+    let b = u8::from_str_radix(&hex[4..6], 16).map_err(err)? as f32 / 255.0;
+    Ok((r, g, b))
+}
+
+fn watermark_grid_positions(
+    bounds: [f32; 4],
+    options: &Options,
+) -> Result<Option<Vec<(f32, f32)>>> {
+    let has_count = options.get("count").is_some_and(|v| !v.trim().is_empty());
+    let has_cols = options.get("cols").is_some_and(|v| !v.trim().is_empty());
+    let has_rows = options.get("rows").is_some_and(|v| !v.trim().is_empty());
+    let layout = options.get("layout").map(String::as_str).unwrap_or("");
+    if !(has_count || has_cols || has_rows || matches!(layout, "grid" | "center")) {
+        return Ok(None);
+    }
+    let page_w = bounds[2] - bounds[0];
+    let page_h = bounds[3] - bounds[1];
+    if layout == "center" && !has_count && !has_cols && !has_rows {
+        return Ok(Some(vec![(
+            bounds[0] + page_w / 2.,
+            bounds[1] + page_h / 2.,
+        )]));
+    }
+    let count = if has_count {
+        let c = integer(options, "count", 1)?;
+        if !(1..=64).contains(&c) {
+            return Err("count must be between 1 and 64".into());
+        }
+        Some(c as usize)
+    } else {
+        None
+    };
+    let cols = if has_cols {
+        let c = integer(options, "cols", 1)?;
+        if !(1..=8).contains(&c) {
+            return Err("cols must be between 1 and 8".into());
+        }
+        c as usize
+    } else if let Some(n) = count {
+        (n as f32).sqrt().ceil().max(1.) as usize
+    } else {
+        1
+    };
+    let rows = if has_rows {
+        let r = integer(options, "rows", 1)?;
+        if !(1..=10).contains(&r) {
+            return Err("rows must be between 1 and 10".into());
+        }
+        r as usize
+    } else if let Some(n) = count {
+        n.div_ceil(cols).clamp(1, 10)
+    } else {
+        1
+    };
+
+    let total = count.unwrap_or(cols * rows).min(64);
+    let mut pts = Vec::with_capacity(total);
+    for r in 0..rows {
+        let cy = bounds[3] - ((r as f32 + 0.5) / rows as f32) * page_h;
+        for c in 0..cols {
+            if pts.len() >= total {
+                break;
+            }
+            let cx = bounds[0] + ((c as f32 + 0.5) / cols as f32) * page_w;
+            pts.push((cx, cy));
+        }
+    }
+    Ok(Some(pts))
+}
+
+fn text_content_rgb(
+    text: &str,
+    x: f32,
+    y: f32,
+    size: f32,
+    rgb: (f32, f32, f32),
+) -> Result<Vec<u8>> {
     Content {
         operations: vec![
             Operation::new("q", vec![]),
-            Operation::new("g", vec![gray.into()]),
+            Operation::new("rg", vec![rgb.0.into(), rgb.1.into(), rgb.2.into()]),
             Operation::new("BT", vec![]),
             Operation::new("Tf", vec![Object::Name(b"ToolFont".to_vec()), size.into()]),
             Operation::new("Td", vec![x.into(), y.into()]),
@@ -579,6 +682,12 @@ fn text_content(text: &str, x: f32, y: f32, size: f32, gray: f32) -> Result<Vec<
     .encode()
     .map_err(err)
 }
+
+fn text_content(text: &str, x: f32, y: f32, size: f32, gray: f32) -> Result<Vec<u8>> {
+    text_content_rgb(text, x, y, size, (gray, gray, gray))
+}
+
+#[cfg(test)]
 #[expect(
     clippy::too_many_arguments,
     reason = "explicit overlay coordinates and styling"
@@ -594,22 +703,56 @@ fn overlay(
     rotation: f32,
     opacity: f32,
 ) -> Result<()> {
+    let g = if light { 0.65 } else { 0. };
+    overlay_multi(
+        doc,
+        id,
+        text,
+        &[(x, y)],
+        size,
+        (g, g, g),
+        rotation,
+        opacity,
+        false,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "explicit overlay coordinates, RGB color, and grid stamps"
+)]
+fn overlay_multi(
+    doc: &mut Document,
+    id: ObjectId,
+    text: &str,
+    positions: &[(f32, f32)],
+    size: f32,
+    rgb: (f32, f32, f32),
+    rotation: f32,
+    opacity: f32,
+    centered: bool,
+) -> Result<()> {
     let font =
         doc.add_object(dictionary! {"Type"=>"Font","Subtype"=>"Type1","BaseFont"=>"Helvetica"});
     // A Form XObject isolates our resource names from the original PDF's font names.
     let bounds = page_box(doc, id)?;
     let radians = rotation.to_radians();
     let (sin, cos) = radians.sin_cos();
-    let mut content =
-        format!("q /ToolOpacity gs {cos} {sin} {} {cos} {x} {y} cm\n", -sin).into_bytes();
-    content.extend(text_content(
-        text,
-        0.,
-        0.,
-        size,
-        if light { 0.65 } else { 0. },
-    )?);
-    content.extend_from_slice(b"\nQ");
+    let (off_x, off_y) = if centered {
+        let est_w = text.chars().count() as f32 * size * 0.52;
+        (-est_w / 2.0, -size * 0.32)
+    } else {
+        (0., 0.)
+    };
+    let text_ops = text_content_rgb(text, off_x, off_y, size, rgb)?;
+    let mut content = Vec::new();
+    for &(x, y) in positions {
+        content.extend_from_slice(
+            format!("q /ToolOpacity gs {cos} {sin} {} {cos} {x} {y} cm\n", -sin).as_bytes(),
+        );
+        content.extend_from_slice(&text_ops);
+        content.extend_from_slice(b"\nQ\n");
+    }
     let form=doc.add_object(Stream::new(dictionary! {"Type"=>"XObject","Subtype"=>"Form","BBox"=>bounds.iter().copied().map(Object::Real).collect::<Vec<_>>(),"Resources"=>dictionary!{"Font"=>dictionary!{"ToolFont"=>font},"ExtGState"=>dictionary!{"ToolOpacity"=>dictionary!{"Type"=>"ExtGState","ca"=>opacity,"CA"=>opacity}}}},content));
     let mut resources = inherited(doc, id, b"Resources")?
         .unwrap_or(Object::Dictionary(Dictionary::new()))
@@ -648,7 +791,12 @@ fn overlay(
         .set("Contents", contents);
     Ok(())
 }
-fn image_signature(doc: &mut Document, id: ObjectId, options: &Options) -> Result<()> {
+fn image_signature(
+    doc: &mut Document,
+    id: ObjectId,
+    options: &Options,
+    allow_watermark_grid: bool,
+) -> Result<()> {
     let encoded = options
         .get("image_base64")
         .ok_or("Missing signature image")?;
@@ -672,19 +820,38 @@ fn image_signature(doc: &mut Document, id: ObjectId, options: &Options) -> Resul
         return Err("Invalid signature image dimensions".into());
     }
     let bounds = page_box(doc, id)?;
-    let x = number(options, "x", bounds[0] + 36.)?;
-    let y = number(options, "y", bounds[1] + 36.)?;
-    let width = number(options, "width", 150.)?;
+    let grid_pts = if allow_watermark_grid {
+        watermark_grid_positions(bounds, options)?
+    } else {
+        None
+    };
+    let page_w = bounds[2] - bounds[0];
+    let page_h = bounds[3] - bounds[1];
+    let width = number(
+        options,
+        "width",
+        if grid_pts.is_some() { 140. } else { 150. },
+    )?;
     let height = number(options, "height", width * h as f32 / w as f32)?;
-    if width <= 0.
-        || height <= 0.
-        || x < bounds[0]
-        || y < bounds[1]
-        || x + width > bounds[2]
-        || y + height > bounds[3]
-    {
-        return Err("Signature rectangle exceeds page MediaBox".into());
-    }
+    let (x, y) = if grid_pts.is_some() {
+        if width <= 0. || height <= 0. || width > page_w || height > page_h {
+            return Err("Watermark image size exceeds page dimensions".into());
+        }
+        (bounds[0], bounds[1])
+    } else {
+        let x = number(options, "x", bounds[0] + 36.)?;
+        let y = number(options, "y", bounds[1] + 36.)?;
+        if width <= 0.
+            || height <= 0.
+            || x < bounds[0]
+            || y < bounds[1]
+            || x + width > bounds[2]
+            || y + height > bounds[3]
+        {
+            return Err("Signature rectangle exceeds page MediaBox".into());
+        }
+        (x, y)
+    };
     let mut rgb = Vec::with_capacity(w as usize * h as usize * 3);
     let mut alpha = Vec::with_capacity(w as usize * h as usize);
     for p in rgba.pixels() {
@@ -739,10 +906,24 @@ fn image_signature(doc: &mut Document, id: ObjectId, options: &Options) -> Resul
     let prefix = doc.add_object(Stream::new(dictionary! {}, b"q\n".to_vec()));
     let mut contents = vec![Object::Reference(prefix)];
     contents.extend(doc.get_page_contents(id).into_iter().map(Object::Reference));
-    let suffix = doc.add_object(Stream::new(
-        dictionary! {},
-        format!("\nQ\nq /{state} gs {cos} {sin} {} {cos} {x} {y} cm {width} 0 0 {height} 0 0 cm /{name} Do Q\n", -sin).into_bytes(),
-    ));
+    let draw_ops = if let Some(pts) = grid_pts {
+        let mut s = String::from("\nQ\n");
+        let (hx, hy) = (-width / 2.0, -height / 2.0);
+        for (cx, cy) in pts {
+            s.push_str(&format!(
+                "q /{state} gs 1 0 0 1 {cx} {cy} cm {cos} {sin} {} {cos} 0 0 cm {width} 0 0 {height} {hx} {hy} cm /{name} Do Q\n",
+                -sin
+            ));
+        }
+        s.into_bytes()
+    } else {
+        format!(
+            "\nQ\nq /{state} gs {cos} {sin} {} {cos} {x} {y} cm {width} 0 0 {height} 0 0 cm /{name} Do Q\n",
+            -sin
+        )
+        .into_bytes()
+    };
+    let suffix = doc.add_object(Stream::new(dictionary! {}, draw_ops));
     contents.push(suffix.into());
     doc.get_dictionary_mut(id)
         .map_err(err)?
@@ -1713,5 +1894,63 @@ mod tests {
             String::from_utf8_lossy(&protected.get_page_content(protected.get_pages()[&1]))
                 .contains("ProtectOverlay")
         );
+    }
+
+    #[test]
+    fn tiled_colored_text_watermark_renders_rgb_and_multiple_stamps() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("doc.pdf");
+        fixture().save(&input).unwrap();
+        let opts = Options::from([
+            ("text".into(), "CONFIDENTIAL".into()),
+            ("color".into(), "#E63228".into()),
+            ("cols".into(), "3".into()),
+            ("rows".into(), "3".into()),
+            ("rotation".into(), "35".into()),
+            ("opacity".into(), "0.3".into()),
+            ("font_size".into(), "28".into()),
+        ]);
+        let (out, _) = run("watermark", &[input], &opts, dir.path()).unwrap();
+        let d = load(&out).unwrap();
+        let streams: String = d
+            .objects
+            .values()
+            .filter_map(|o| o.as_stream().ok())
+            .map(|s| {
+                let raw = s
+                    .decompressed_content()
+                    .unwrap_or_else(|_| s.content.clone());
+                String::from_utf8_lossy(&raw).into_owned()
+            })
+            .collect();
+        assert!(streams.contains("CONFIDENTIAL"));
+        assert!(streams.contains("rg"));
+        assert!(streams.matches("Tj").count() >= 9);
+    }
+
+    #[test]
+    fn tiled_image_watermark_reuses_xobject_for_multiple_stamps() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("doc.pdf");
+        fixture().save(&input).unwrap();
+        let img = dir.path().join("logo.png");
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([230, 50, 40, 200]))
+            .save(&img)
+            .unwrap();
+        let opts = Options::from([
+            (
+                "image_base64".into(),
+                base64::engine::general_purpose::STANDARD.encode(std::fs::read(img).unwrap()),
+            ),
+            ("count".into(), "6".into()),
+            ("width".into(), "80".into()),
+            ("rotation".into(), "30".into()),
+            ("opacity".into(), "0.25".into()),
+            ("pages".into(), "1".into()),
+        ]);
+        let (out, _) = run("watermark", &[input], &opts, dir.path()).unwrap();
+        let d = load(&out).unwrap();
+        let content = String::from_utf8_lossy(&d.get_page_content(d.get_pages()[&1])).into_owned();
+        assert_eq!(content.matches("Do").count(), 6);
     }
 }

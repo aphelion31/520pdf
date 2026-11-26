@@ -818,25 +818,39 @@ pub fn catalog() -> Value {
                     ),
                     field("margin", "Margin (PDF points)", "number", "24"),
                 ],
-                "watermark" | "sign" => vec![
-                    field(
-                        "text",
-                        if id == "sign" {
-                            "Signature text"
-                        } else {
-                            "Watermark text"
-                        },
-                        "text",
-                        "",
-                    ),
-                    field("x", "X position (points)", "number", "36"),
-                    field("y", "Y position from bottom (points)", "number", "72"),
-                    field("width", "Width (points)", "number", "160"),
-                    field("height", "Height (points)", "number", "60"),
-                    field("font_size", "Text size (points)", "number", "32"),
-                    field("rotation", "Text rotation (degrees)", "number", "0"),
-                    field("opacity", "Opacity (0 to 1)", "number", "0.5"),
-                ],
+                "watermark" | "sign" => {
+                    let mut list = vec![
+                        field(
+                            "text",
+                            if id == "sign" {
+                                "Signature text"
+                            } else {
+                                "Watermark text"
+                            },
+                            "text",
+                            "",
+                        ),
+                        field("x", "X position (points)", "number", "36"),
+                        field("y", "Y position from bottom (points)", "number", "72"),
+                        field("width", "Width (points)", "number", "160"),
+                        field("height", "Height (points)", "number", "60"),
+                        field("font_size", "Text size (points)", "number", "32"),
+                        field("rotation", "Text rotation (degrees)", "number", "0"),
+                        field("opacity", "Opacity (0 to 1)", "number", "0.5"),
+                    ];
+                    if id == "watermark" {
+                        list.push(field(
+                            "color",
+                            "Text color (hex #RRGGBB)",
+                            "text",
+                            "#E63228",
+                        ));
+                        list.push(field("count", "Stamp count (1-64)", "number", "1"));
+                        list.push(field("cols", "Grid columns (1-8)", "number", "1"));
+                        list.push(field("rows", "Grid rows (1-10)", "number", "1"));
+                    }
+                    list
+                }
                 "page-numbers" => vec![
                     field("start", "Start number", "number", "1"),
                     field(
