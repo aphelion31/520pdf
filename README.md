@@ -17,9 +17,9 @@
 [![Release](https://img.shields.io/github/v/release/aphelion31/520pdf?style=flat-square&logo=github)](https://github.com/aphelion31/520pdf/releases)
 [![License](https://img.shields.io/github/license/aphelion31/520pdf?style=flat-square)](LICENSE)
 
-[![Rust + Axum 0.8](https://img.shields.io/badge/backend-Rust%20%2B%20Axum%200.8-e63228?style=flat-square&logo=rust&logoColor=white)](src/http/workbench.rs)
-[![React Router 8](https://img.shields.io/badge/frontend-React%20Router%208-09090b?style=flat-square&logo=react&logoColor=white)](web/app/root.tsx)
-[![Argon2id Auth](https://img.shields.io/badge/auth-Argon2id%20%2B%20CORS-2a7050?style=flat-square)](src/http/auth.rs)
+[![Rust + Axum 0.8](https://img.shields.io/badge/backend-Rust%20%2B%20Axum%200.8-b7281e?style=flat-square&logo=rust&logoColor=white)](src/http/workbench.rs)
+[![React Router 8](https://img.shields.io/badge/frontend-React%20Router%208-161210?style=flat-square&logo=react&logoColor=white)](web/app/root.tsx)
+[![Argon2id Auth](https://img.shields.io/badge/auth-Argon2id%20%2B%20CORS-236b4e?style=flat-square)](src/http/auth.rs)
 
 </div>
 
@@ -91,7 +91,7 @@ Measured with [`tools/bench.sh`](tools/bench.sh) on macOS `arm64`: [oha](https:/
 | **Backend source** | 5 files · 232 LOC (`server/` + `shared/`) | 12 files · 7,328 LOC (`src/*.rs`) | Full PDF/media/resume engine + Argon2id auth in Rust |
 | **Frontend source** | 90 files · 11,682 LOC (`client/src`) | 28 files · 4,758 LOC (`web/app`) | **2.5× fewer LOC** |
 | **Direct dependencies** | 91 npm packages (70 + 21 dev) | 19 Rust crates + 16 npm packages | **2.6× fewer deps** |
-| **Runtime footprint** | `4.84 MiB` `dist/` + `426.88 MiB` `node_modules/` | **`7.89 MiB` binary + `4.57 MiB` `web/build/client`** | **No Node runtime (`426.88 MiB` eliminated)** |
+| **Runtime footprint** | `4.84 MiB` `dist/` + `426.88 MiB` `node_modules/` | **`9.17 MiB` binary + `6.62 MiB` `web/build/client`** | **No Node runtime (`426.88 MiB` eliminated)** |
 | **Tools / capabilities** | 12 client-side tools | **36 tools** (13 core + 23 PDF, Office & AI) | **3.0× broader toolkit** |
 
 Read these numbers fairly:
@@ -103,11 +103,11 @@ Read these numbers fairly:
 <details>
 <summary>Breakdown of built 520pdf artifacts (<code>target/release/pdf520</code> &amp; <code>web/build/client</code>)</summary>
 
-- Release executable (`target/release/pdf520`): **`8,275,792` bytes** (`7.89 MiB`)
-- Static React Router 8 SPA (`web/build/client`): **`4,789,218` bytes** (`4.57 MiB`)
-  - JS, CSS & KaTeX fonts (`assets/`): `1,906,971` bytes (`1.82 MiB`)
+- Release executable (`target/release/pdf520`): **`9,618,864` bytes** (`9.17 MiB`)
+- Static React Router 8 SPA (`web/build/client`): **`6,942,804` bytes** (`6.62 MiB`)
+  - JS, CSS, Fumadocs & KaTeX fonts (`assets/`): `2,706,025` bytes (`2.58 MiB`)
   - Vendored `pdfjs` viewer/worker (`pdfjs/`): `2,878,275` bytes (`2.74 MiB`)
-  - Geometric SVG brand assets (`brand-assets/`): `1,548` bytes (`1.5 KiB`)
+  - Copperplate SVG/PNG brand assets (`brand-assets/`): `1,347,320` bytes (`1.28 MiB`)
 
 </details>
 

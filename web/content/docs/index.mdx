@@ -11,9 +11,11 @@ Every tool is exposed identically under both `/api/tools/{tool}` and the version
 
 - `GET /api/tools` — Live JSON catalog of all **36 tools**, accepted file extensions, routes, and configurable option fields.
 - `GET /api/openapi.json` — OpenAPI 3.1.0 specification generated live from the tool catalog.
-- `POST /api/v1/tools/{tool}` — Execute any tool cleanly with `files` + customizable parameters.
+- `POST /api/v1/tools/{tool}` — Execute any tool cleanly with `files` + customizable parameters (pass `X-Job-Id` to track live progress).
+- `GET /api/jobs/{id}` — Poll live percentage (`0–100`) and processing stage for a running job.
 - `GET /api/auth/me`, `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout` — Argon2id user sessions (`HttpOnly` HMAC-SHA256 cookies).
-- `GET /api/tokens`, `POST /api/tokens`, `DELETE /api/tokens/{id}` — Scoped API key management (requires a signed-in user session).
+- `GET /api/tokens`, `POST /api/tokens`, `POST /api/tokens/{id}/reveal`, `DELETE /api/tokens/{id}` — Scoped API key management & password-gated reveal (requires a signed-in user session).
+- `GET /api/cors`, `PUT /api/cors` — View or update allowed CORS origins for `/api/*` (defaults to `*`).
 
 ## Limits & Privacy Defaults
 
@@ -24,6 +26,7 @@ Every tool is exposed identically under both `/api/tools/{tool}` and the version
 | Job concurrency | `2` | Semaphore-bounded background workers |
 | Execution timeout | `180 s` | Temporary workdirs deleted immediately after response |
 | Open vs. gated access | Open by default | Set `REQUIRE_API_KEY=true` or `AUTH_USER` to require tokens/sessions |
+| CORS default | `*` (`All origins`) | Override via `CORS_ORIGINS` env or live in `/api-keys` (`PUT /api/cors`) |
 
 ## Machine-Readable Output Naming
 

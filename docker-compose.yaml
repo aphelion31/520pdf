@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: docker/axum/Dockerfile
-    image: 520pdf-app:1.0.0
+    image: 520pdf-app:1.1.0
     ports:
       - "127.0.0.1:8520:8080"
     env_file: .env

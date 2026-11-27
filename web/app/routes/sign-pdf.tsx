@@ -232,7 +232,7 @@ export default function SignPdf() {
                 Draw signature
               </p>
               <div className="flex items-center gap-2">
-                {["#111318", "#1d4ed8", "#e63228"].map((c) => (
+                {["#111318", "#1d4ed8", "#b7281e"].map((c) => (
                   <button
                     key={c}
                     type="button"
@@ -400,7 +400,7 @@ export default function SignPdf() {
                 onPointerMove={moveBoxDrag}
                 onPointerUp={endBoxDrag}
                 onPointerCancel={endBoxDrag}
-                className="group absolute flex cursor-grab touch-none items-center justify-center rounded border-2 border-dashed border-[#e63228]/80 bg-[#e63228]/5 active:cursor-grabbing"
+                className="group absolute flex cursor-grab touch-none items-center justify-center rounded border-2 border-dashed border-[#b7281e]/80 bg-[#b7281e]/5 active:cursor-grabbing"
                 style={{
                   left: `${Math.max(0, Math.min(95, (xPt / pageW) * 100))}%`,
                   bottom: `${Math.max(0, Math.min(95, (yPt / pageH) * 100))}%`,
@@ -420,7 +420,7 @@ export default function SignPdf() {
                     {sigText}
                   </span>
                 )}
-                <span className="pointer-events-none absolute -top-2.5 left-1 hidden items-center gap-0.5 rounded bg-[#e63228] px-1 py-0.5 text-[9px] font-bold text-white group-hover:inline-flex">
+                <span className="pointer-events-none absolute -top-2.5 left-1 hidden items-center gap-0.5 rounded bg-[#b7281e] px-1 py-0.5 text-[9px] font-bold text-white group-hover:inline-flex">
                   <Move className="h-2.5 w-2.5" /> Drag
                 </span>
                 <div
@@ -430,7 +430,7 @@ export default function SignPdf() {
                   onPointerMove={moveBoxDrag}
                   onPointerUp={endBoxDrag}
                   onPointerCancel={endBoxDrag}
-                  className="absolute -right-1.5 -bottom-1.5 h-3.5 w-3.5 cursor-nwse-resize rounded-full bg-[#e63228] ring-2 ring-white"
+                  className="absolute -right-1.5 -bottom-1.5 h-3.5 w-3.5 cursor-nwse-resize rounded-full bg-[#b7281e] ring-2 ring-white"
                 />
               </div>
             )}

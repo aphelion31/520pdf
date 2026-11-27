@@ -9,7 +9,7 @@ import { runTool, type ToolResponse } from "~/lib/api";
 import { renderSinglePage, type PdfPageRender } from "~/lib/pdfjs";
 
 const COLOR_PRESETS = [
-  { hex: "#E63228", label: "Crimson" },
+  { hex: "#B7281E", label: "Crimson" },
   { hex: "#475569", label: "Slate" },
   { hex: "#111318", label: "Obsidian" },
   { hex: "#2563EB", label: "Blue" },

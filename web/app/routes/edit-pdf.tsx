@@ -83,7 +83,7 @@ type EditAnnotation =
 
 const COLORS = [
   { hex: "#111318", name: "Ink" },
-  { hex: "#e63228", name: "Crimson" },
+  { hex: "#b7281e", name: "Crimson" },
   { hex: "#2563eb", name: "Royal Blue" },
   { hex: "#16a34a", name: "Emerald" },
   { hex: "#facc15", name: "Highlighter" },
@@ -102,7 +102,7 @@ export default function EditPdf() {
   const [mode, setMode] = useState<EditToolMode>("text");
   const [textDraft, setTextDraft] = useState("Approved");
   const [fontSize, setFontSize] = useState(18);
-  const [color, setColor] = useState("#e63228");
+  const [color, setColor] = useState("#b7281e");
   const [strokeWidth, setStrokeWidth] = useState(2.5);
   const [opacity, setOpacity] = useState(1);
 

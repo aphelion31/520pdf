@@ -24,7 +24,7 @@ form.append("files", pdfFile, pdfFile.name);
 form.append(
   "annotations",
   JSON.stringify([
-    { type: "text", page: 1, x: 60, y: 740, text: "Approved", font_size: 18, color: "#E63228" },
+    { type: "text", page: 1, x: 60, y: 740, text: "Approved", font_size: 18, color: "#B7281E" },
     { type: "highlight", page: 1, x: 60, y: 690, width: 200, height: 18, color: "#FACC15", opacity: 0.38 },
   ]),
 );
@@ -49,8 +49,20 @@ with open("contract.pdf", "rb") as f:
         "http://127.0.0.1:8080/api/v1/tools/watermark",
         headers=headers,
         files={"files": ("contract.pdf", f, "application/pdf")},
-        data={"text": "CONFIDENTIAL", "color": "#E63228", "cols": "3", "rows": "3", "rotation": "35", "opacity": "0.25"},
+        data={"text": "CONFIDENTIAL", "color": "#B7281E", "cols": "3", "rows": "3", "rotation": "35", "opacity": "0.25"},
     )
     res.raise_for_status()
     open("contract_520pdf_watermark.pdf", "wb").write(res.content)
+```
+
+## Poll Live Job Progress (`X-Job-Id`)
+
+```bash
+JOB_ID="job_demo_01"
+curl -fSL -H "X-Job-Id: $JOB_ID" -F "files=@large.pdf" -F "target_kb=250" \
+  -o compressed.pdf http://127.0.0.1:8080/api/v1/tools/compress &
+
+# While processing, poll percentage & stage:
+curl -sS "http://127.0.0.1:8080/api/jobs/$JOB_ID"
+# -> {"job_id":"job_demo_01","percent":58,"stage":"Optimizing pass 2/5 (110 DPI)","done":false}
 ```

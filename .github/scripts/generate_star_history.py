@@ -111,21 +111,21 @@ def render_svg(repository: str, dates: list[dt.date], today: dt.date | None = No
   .bg {{ fill: #ffffff; stroke: #e4e4e7; stroke-width: 1; }}
   text {{ fill: #71717a; font: 12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }}
   .grid {{ stroke: #e4e4e7; stroke-width: 1; }}
-  .area {{ fill: #e63228; fill-opacity: .12; }}
-  .line {{ fill: none; stroke: #e63228; stroke-width: 2.75; stroke-linejoin: round; stroke-linecap: round; }}
-  .point {{ fill: #ffffff; stroke: #e63228; stroke-width: 2; }}
-  .point.current {{ fill: #e63228; stroke: #ffffff; stroke-width: 2; }}
-  .heading {{ fill: #09090b; font-size: 16px; font-weight: 600; }}
-  .metric {{ fill: #09090b; font-size: 17px; font-weight: 600; }}
+  .area {{ fill: #b7281e; fill-opacity: .12; }}
+  .line {{ fill: none; stroke: #b7281e; stroke-width: 2.75; stroke-linejoin: round; stroke-linecap: round; }}
+  .point {{ fill: #ffffff; stroke: #b7281e; stroke-width: 2; }}
+  .point.current {{ fill: #b7281e; stroke: #ffffff; stroke-width: 2; }}
+  .heading {{ fill: #161210; font-size: 16px; font-weight: 600; }}
+  .metric {{ fill: #161210; font-size: 17px; font-weight: 600; }}
   @media (prefers-color-scheme: dark) {{
-    .bg {{ fill: #0d1117; stroke: #30363d; }}
-    text {{ fill: #8b949e; }}
-    .grid {{ stroke: #21262d; }}
-    .area {{ fill: #ff4d42; fill-opacity: .16; }}
-    .line {{ stroke: #ff4d42; }}
-    .point {{ fill: #0d1117; stroke: #ff4d42; }}
-    .point.current {{ fill: #ff4d42; stroke: #0d1117; }}
-    .heading,.metric {{ fill: #f4f4f5; }}
+    .bg {{ fill: #120f0e; stroke: #2e2723; }}
+    text {{ fill: #b8aea1; }}
+    .grid {{ stroke: #27211e; }}
+    .area {{ fill: #e54d42; fill-opacity: .16; }}
+    .line {{ stroke: #e54d42; }}
+    .point {{ fill: #120f0e; stroke: #e54d42; }}
+    .point.current {{ fill: #e54d42; stroke: #120f0e; }}
+    .heading,.metric {{ fill: #f5efe4; }}
   }}
 </style>
 <rect class="bg" x="0.5" y="0.5" width="{width - 1}" height="{height - 1}" rx="10"/>

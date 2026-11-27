@@ -6,45 +6,45 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --bg-page: #ffffff;
+  --bg-page: #faf7f0;
   --bg-surface: #ffffff;
-  --bg-subtle: #f4f4f5;
-  --bg-band: #fafafa;
-  --ink-primary: #09090b;
-  --ink-secondary: #52525b;
-  --ink-muted: #71717a;
-  --border-subtle: #e4e4e7;
-  --border-strong: #d4d4d8;
-  --accent: #e63228;
-  --accent-hover: #c5251c;
-  --accent-soft: rgba(230, 50, 40, 0.08);
-  --state-ok-fg: #2a7050;
-  --state-ok-bg: rgba(42, 112, 80, 0.07);
-  --state-ok-border: rgba(42, 112, 80, 0.24);
-  --state-bad-fg: #a33333;
-  --glare-sweep: rgba(0, 0, 0, 0.045);
+  --bg-subtle: #f2ece0;
+  --bg-band: #f5efe4;
+  --ink-primary: #161210;
+  --ink-secondary: #574f47;
+  --ink-muted: #7d7369;
+  --border-subtle: #e6dfd1;
+  --border-strong: #d4c9b7;
+  --accent: #b7281e;
+  --accent-hover: #992019;
+  --accent-soft: rgba(183, 40, 30, 0.09);
+  --state-ok-fg: #236b4e;
+  --state-ok-bg: rgba(35, 107, 78, 0.08);
+  --state-ok-border: rgba(35, 107, 78, 0.24);
+  --state-bad-fg: #9f221b;
+  --glare-sweep: rgba(183, 40, 30, 0.045);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-accordion: cubic-bezier(0.785, 0.135, 0.15, 0.86);
 }
 
 .dark {
-  --bg-page: hsl(20 14.3% 4.1%);
-  --bg-surface: hsl(24 9.8% 10%);
-  --bg-subtle: hsl(240 3.7% 15.9%);
-  --bg-band: hsl(20 11% 7.5%);
-  --ink-primary: #f4f4f5;
-  --ink-secondary: #a1a1aa;
-  --ink-muted: #71717a;
-  --border-subtle: hsl(240 3.7% 15.9%);
-  --border-strong: hsl(240 4% 24%);
-  --accent: #ff4d42;
-  --accent-hover: #e63228;
-  --accent-soft: rgba(255, 77, 66, 0.13);
-  --state-ok-fg: #8fd3b1;
-  --state-ok-bg: rgba(143, 211, 177, 0.08);
-  --state-ok-border: rgba(143, 211, 177, 0.24);
-  --state-bad-fg: #eba0a0;
-  --glare-sweep: rgba(255, 255, 255, 0.11);
+  --bg-page: #120f0e;
+  --bg-surface: #1b1715;
+  --bg-subtle: #27211e;
+  --bg-band: #161311;
+  --ink-primary: #f5efe4;
+  --ink-secondary: #b8aea1;
+  --ink-muted: #8a8075;
+  --border-subtle: #2e2723;
+  --border-strong: #423832;
+  --accent: #e54d42;
+  --accent-hover: #cc3b31;
+  --accent-soft: rgba(229, 77, 66, 0.14);
+  --state-ok-fg: #7ad0a8;
+  --state-ok-bg: rgba(122, 208, 168, 0.09);
+  --state-ok-border: rgba(122, 208, 168, 0.25);
+  --state-bad-fg: #f29b95;
+  --glare-sweep: rgba(245, 239, 228, 0.09);
 }
 
 html,
@@ -59,7 +59,7 @@ body {
 .surface-card {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  box-shadow: 0 1px 2px rgba(9, 9, 11, 0.03);
+  box-shadow: 0 1px 2px rgba(22, 18, 16, 0.04);
 }
 
 .dark .surface-card {

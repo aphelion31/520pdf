@@ -454,7 +454,7 @@ function renderCustomSvg(toolId: string): ReactNode {
             width="25"
             height="25"
             rx="5.5"
-            fill="#E63228"
+            fill="#B7281E"
             stroke="var(--bg-surface)"
             strokeWidth="2.4"
           />
@@ -651,14 +651,14 @@ function renderCustomSvg(toolId: string): ReactNode {
       return (
         <TileBase color="#333842">
           <line x1="13" y1="15.5" x2="35" y2="15.5" stroke="#FFFFFF" strokeWidth="2.3" strokeLinecap="round" opacity="0.7" />
-          <rect x="12.5" y="21" width="23" height="6.5" rx="1.5" fill="#E63228" />
+          <rect x="12.5" y="21" width="23" height="6.5" rx="1.5" fill="#B7281E" />
           <line x1="13" y1="33" x2="29" y2="33" stroke="#FFFFFF" strokeWidth="2.3" strokeLinecap="round" opacity="0.7" />
         </TileBase>
       );
 
     case "equation-to-image":
       return (
-        <TileBase color="#E63228">
+        <TileBase color="#B7281E">
           <LetterGlyph text="Σ" cx={24} cy={23.5} size={23} />
         </TileBase>
       );
@@ -713,7 +713,7 @@ function renderCustomSvg(toolId: string): ReactNode {
 
     default:
       return (
-        <TileBase color="#E63228">
+        <TileBase color="#B7281E">
           <LetterGlyph text="PDF" cx={24} cy={24} size={12} />
         </TileBase>
       );

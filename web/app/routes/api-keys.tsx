@@ -869,7 +869,7 @@ export default function ApiKeysPage() {
                 {copiedCurl ? "Copied" : "Copy cURL"}
               </button>
             </div>
-            <pre className="overflow-x-auto rounded-xl border border-[var(--border-subtle)] bg-neutral-950 p-4 font-mono text-xs leading-relaxed text-neutral-100">
+            <pre className="overflow-x-auto rounded-xl border border-[var(--border-subtle)] bg-[#161210] p-4 font-mono text-xs leading-relaxed text-[#F5EFE4]">
               {curlSnippet}
             </pre>
           </div>

@@ -39,9 +39,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
           name="description"
           content="520pdf — Single-binary Rust + React Router PDF workbench. Merge, split, compress, convert, sign, and build resumes locally."
         />
+        <meta name="theme-color" content="#B7281E" />
         <title>520pdf — A Little Love for Your PDFs</title>
         <link rel="icon" type="image/svg+xml" href="/brand-assets/favicon.svg" />
-        <link rel="apple-touch-icon" href="/brand-assets/icon.svg" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/brand-assets/favicon-32x32.png" />
+        <link rel="shortcut icon" href="/favicon.ico" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/brand-assets/apple-touch-icon.png" />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: MOTION_INIT_SCRIPT }} />
         <Meta />
@@ -198,7 +201,7 @@ function SiteChrome({ children }: { children: React.ReactNode }) {
       <footer className="mt-16 border-t border-[var(--border-subtle)] bg-[var(--bg-band)]">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-6 text-xs text-[var(--ink-muted)] sm:px-6">
           <div className="flex items-center gap-2">
-            <img src="/brand-assets/icon.svg" alt="" className="h-5 w-5" />
+            <img src="/brand-assets/icon.svg" alt="" className="h-5 w-5 rounded-[5px]" />
             <span className="font-semibold text-[var(--ink-primary)]">520pdf</span>
             <span>·</span>
             <span>我爱你 PDF — Single-binary Rust Axum + React Router 8</span>

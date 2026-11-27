@@ -66,7 +66,7 @@ export function ResumePreview({
   const subPx = Number((bodyPx * 0.88).toFixed(1));
 
   const isModern = style.headerStyle === "modern";
-  const accentHex = isModern ? style.accentColor || "#e63228" : "#181a1f";
+  const accentHex = isModern ? style.accentColor || "#b7281e" : "#161210";
   const justifyClass = style.alignment === "justify" ? "text-justify" : "text-left";
 
   const eduTitle = sectionTitles.education.trim() || defaults.education;

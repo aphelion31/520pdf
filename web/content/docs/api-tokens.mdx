@@ -8,8 +8,8 @@ Use the interactive [**API Keys Console**](/api-keys) or the REST API (while log
 ## Security Model
 
 - Plaintext secrets use the format `520pdf_k_<8-hex-id>_<48-hex-random>` (**256+ bits of entropy**).
-- The full secret is shown **exactly once** on creation and never stored on disk.
-- Only `SHA-256(token)` is persisted in `$DATA_DIR/store.json` (`0600` permissions on Unix) and compared in constant time.
+- Only `SHA-256(token)` lookup hashes and an Encrypt-then-MAC (`HMAC-SHA256`) sealed payload (`v1:<nonce>:<ct>:<tag>`) are persisted in `$DATA_DIR/store.json` (`0600` permissions on Unix) — plaintext tokens never touch disk.
+- Owners can re-reveal an active token in `/api-keys` or via `POST /api/tokens/{id}/reveal` only after re-verifying their Argon2id login password (`Cache-Control: no-store`). Revoking a token wipes its sealed payload immediately.
 - Invalid, expired, or revoked tokens immediately return `401 Unauthorized` — even in open-access workbench mode.
 - Valid tokens restricted to specific tool scopes return `403 Forbidden` if used on an unpermitted tool.
 
@@ -47,4 +47,26 @@ curl -sS -b cookies.txt http://127.0.0.1:8080/api/tokens
 
 # Revoke immediately
 curl -sS -b cookies.txt -X DELETE http://127.0.0.1:8080/api/tokens/tok_a1b2c3d4
+```
+
+## Reveal a Token (Password-Gated)
+
+```bash
+curl -sS -b cookies.txt -X POST http://127.0.0.1:8080/api/tokens/tok_a1b2c3d4/reveal \
+  -H "Content-Type: application/json" \
+  -d '{"password":"StrongPassword520!"}'
+```
+
+## Configure API CORS Origins
+
+`/api/*` defaults to `*` (`Access-Control-Allow-Origin: *`). Signed-in users can inspect or restrict allowed browser origins via REST or the **API CORS Origins** panel on `/api-keys`:
+
+```bash
+# Inspect active CORS origins
+curl -sS -b cookies.txt http://127.0.0.1:8080/api/cors
+
+# Restrict to explicit origin(s) (enables Access-Control-Allow-Credentials: true)
+curl -sS -b cookies.txt -X PUT http://127.0.0.1:8080/api/cors \
+  -H "Content-Type: application/json" \
+  -d '{"origins":["https://app.example.com"]}'
 ```
