@@ -43,7 +43,7 @@ export default function MergePdfs() {
   return (
     <ToolShell
       title="Merge PDFs"
-      description="Combine multiple PDF documents in order using native Rust lopdf processing."
+      description="Combine multiple PDF documents in order locally."
       category="Organize"
     >
       <div className="surface-card space-y-5 rounded-2xl p-6">

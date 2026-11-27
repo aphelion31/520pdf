@@ -118,13 +118,22 @@ try {
     viewport: { width: 1440, height: 900 },
     deviceScaleFactor: 2,
   });
+  let allowExpectedReveal401 = false;
   const page = await context.newPage();
   page.on("console", (msg) => {
-    if (msg.type() === "error") consoleErrors.push(msg.text());
+    if (msg.type() === "error") {
+      if (allowExpectedReveal401 && msg.text().includes("401")) return;
+      consoleErrors.push(msg.text());
+    }
   });
   page.on("pageerror", (err) => pageErrors.push(err.message));
   page.on("response", (res) => {
-    if (res.status() >= 400) failedRequests.push(`${res.status()} ${res.url()}`);
+    if (res.status() >= 400) {
+      if (allowExpectedReveal401 && res.status() === 401 && res.url().includes("/reveal")) {
+        return;
+      }
+      failedRequests.push(`${res.status()} ${res.url()}`);
+    }
   });
 
   // 1. Home + DropHero with vault carry-over + tools grid icons
@@ -140,11 +149,55 @@ try {
   await page.screenshot({ path: path.join(SHOT_DIR, "tools-grid.png"), fullPage: false });
   console.log("Captured tools-grid.png");
 
-  // 1b. Login page (Argon2id workspace sign-in)
-  await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
-  await page.waitForTimeout(250);
+  // 1b. Login & API Keys flow (register Argon2id account -> redirect to /api-keys -> create & revoke token)
+  await page.goto(`${BASE}/api-keys`, { waitUntil: "networkidle" });
+  await page.getByText("Sign in to access API Keys").waitFor({ timeout: 10000 });
+  await page.getByRole("link", { name: "Sign in or Create Account" }).click();
+  await page.waitForURL(/\/login\?next=%2Fapi-keys|\/login\?next=\/api-keys/);
+  await page.waitForTimeout(380);
   await page.screenshot({ path: path.join(SHOT_DIR, "login.png"), fullPage: false });
   console.log("Captured login.png");
+
+  const regTab = page.getByRole("button", { name: "Create account" });
+  if (await regTab.isVisible()) {
+    await regTab.click();
+    await page.locator('input[name="username"]').fill(`e2e_${Date.now()}`);
+    await page.locator('input[name="password"]').fill("StrongPassword520!");
+    await page.getByRole("button", { name: "Create Account & Continue" }).click();
+    await page.waitForURL(/\/api-keys/);
+    await page.getByPlaceholder(/CI Pipeline/).fill("CI PDF Pipeline");
+    await page.getByRole("button", { name: "Generate API Key" }).click();
+    await page.getByTestId("minted-token-banner").waitFor({ timeout: 10000 });
+    await page.waitForTimeout(250);
+    await page.screenshot({ path: path.join(SHOT_DIR, "api-keys.png"), fullPage: false });
+    console.log("Captured api-keys.png");
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "View CI PDF Pipeline" }).click();
+    await page.getByRole("dialog").waitFor({ timeout: 5000 });
+    await page.locator('input[name="reveal_password"]').fill("WrongPassword!");
+    allowExpectedReveal401 = true;
+    await page.getByRole("button", { name: "Reveal Token" }).click();
+    await page.getByText("Incorrect password").waitFor({ timeout: 5000 });
+    allowExpectedReveal401 = false;
+    await page.locator('input[name="reveal_password"]').fill("StrongPassword520!");
+    await page.getByRole("button", { name: "Reveal Token" }).click();
+    await page.locator('[data-testid^="revealed-token-"]').waitFor({ timeout: 5000 });
+    await page.getByRole("button", { name: "Hide CI PDF Pipeline" }).click();
+    await page.getByRole("button", { name: "Revoke CI PDF Pipeline" }).click();
+
+    // Verify API CORS Origins editor UI (add custom origin then remove it, leaving * default)
+    await page.locator('input[name="cors_origin"]').fill("https://app.example.com");
+    await page.getByRole("button", { name: "Add Origin" }).click();
+    await page.getByText("https://app.example.com").waitFor({ timeout: 5000 });
+    await page.getByRole("button", { name: "Remove origin https://app.example.com" }).click();
+  }
+
+  // 1c. Fumadocs documentation pages
+  await page.goto(`${BASE}/docs/compress-pdf`, { waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: /Compress PDF Customization/i }).waitFor({ timeout: 10000 });
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(SHOT_DIR, "fumadocs.png"), fullPage: false });
+  console.log("Captured fumadocs.png");
 
   // 2. Compress PDF (carries sample-resume.pdf automatically from File Vault)
   await page.goto(`${BASE}/compress-pdf`, { waitUntil: "networkidle" });
@@ -248,7 +301,7 @@ try {
 
   // 6. Resume Builder (live A4 preview + Rust PDF export)
   await page.goto(`${BASE}/resume-builder`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "Export Resume PDF (Rust)" }).click();
+  await page.getByRole("button", { name: "Export Resume PDF" }).click();
   await page.getByText(/Ready:/).waitFor({ timeout: 15000 });
   await page.waitForTimeout(300);
   await page.screenshot({ path: path.join(SHOT_DIR, "resume-builder.png"), fullPage: false });
@@ -272,7 +325,7 @@ try {
   assert.deepEqual(consoleErrors, [], `console errors: ${consoleErrors.join("; ")}`);
   assert.deepEqual(pageErrors, [], `page errors: ${pageErrors.join("; ")}`);
   assert.deepEqual(failedRequests, [], `failed requests: ${failedRequests.join("; ")}`);
-  console.log("PASS: all 11 retina screenshots + zero console/page/network errors + mobile responsive");
+  console.log("PASS: all 13 retina screenshots + zero console/page/network errors + mobile responsive");
 } finally {
   await browser.close();
 }

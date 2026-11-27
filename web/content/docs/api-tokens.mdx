@@ -1,0 +1,50 @@
+---
+title: API Tokens (Create, Scope & Revoke)
+description: Mint scoped 520pdf_k_ API tokens from /api-keys or REST endpoints, hashed at rest with SHA-256.
+---
+
+Use the interactive [**API Keys Console**](/api-keys) or the REST API (while logged in) to mint scoped tokens.
+
+## Security Model
+
+- Plaintext secrets use the format `520pdf_k_<8-hex-id>_<48-hex-random>` (**256+ bits of entropy**).
+- The full secret is shown **exactly once** on creation and never stored on disk.
+- Only `SHA-256(token)` is persisted in `$DATA_DIR/store.json` (`0600` permissions on Unix) and compared in constant time.
+- Invalid, expired, or revoked tokens immediately return `401 Unauthorized` — even in open-access workbench mode.
+- Valid tokens restricted to specific tool scopes return `403 Forbidden` if used on an unpermitted tool.
+
+## Create a Scoped Token
+
+```bash
+curl -sS -b cookies.txt -X POST http://127.0.0.1:8080/api/tokens \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "CI PDF Pipeline",
+    "scopes": ["compress", "merge", "pdf-to-word"],
+    "expires_in_days": 90
+  }'
+```
+
+Omit `scopes` or pass `["*"]` to allow all 36 tools. Omit `expires_in_days` for a non-expiring token.
+
+## Authenticate Tool Requests
+
+Send the key via either header:
+
+```bash
+Authorization: Bearer 520pdf_k_...
+# or
+X-API-Key: 520pdf_k_...
+```
+
+Successful API calls include `X-520pdf-Token-Id: tok_...` in the response headers and increment the token's usage counter.
+
+## List & Revoke Tokens
+
+```bash
+# List metadata for your tokens
+curl -sS -b cookies.txt http://127.0.0.1:8080/api/tokens
+
+# Revoke immediately
+curl -sS -b cookies.txt -X DELETE http://127.0.0.1:8080/api/tokens/tok_a1b2c3d4
+```

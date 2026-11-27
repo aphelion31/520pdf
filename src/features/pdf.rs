@@ -511,6 +511,41 @@ fn page_box(doc: &Document, id: ObjectId) -> Result<[f32; 4]> {
     }
     Ok(b)
 }
+pub(crate) fn page_visual_sizes_pt(doc: &Document) -> Vec<(f32, f32)> {
+    doc.get_pages()
+        .into_values()
+        .map(|id| {
+            let crop_or_media = inherited(doc, id, b"CropBox")
+                .ok()
+                .flatten()
+                .and_then(|o| o.as_array().ok().cloned())
+                .filter(|v| v.len() == 4)
+                .and_then(|v| {
+                    Some([
+                        v[0].as_float().ok()?,
+                        v[1].as_float().ok()?,
+                        v[2].as_float().ok()?,
+                        v[3].as_float().ok()?,
+                    ])
+                })
+                .or_else(|| page_box(doc, id).ok());
+            let (w, h) = crop_or_media
+                .map(|b| ((b[2] - b[0]).abs().max(72.0), (b[3] - b[1]).abs().max(72.0)))
+                .unwrap_or((595.28, 841.89));
+            let rot = inherited(doc, id, b"Rotate")
+                .ok()
+                .flatten()
+                .and_then(|o| o.as_i64().ok())
+                .unwrap_or(0)
+                .rem_euclid(360);
+            if rot == 90 || rot == 270 {
+                (h, w)
+            } else {
+                (w, h)
+            }
+        })
+        .collect()
+}
 fn materialize(doc: &mut Document, id: ObjectId) -> Result<()> {
     for key in [b"MediaBox".as_slice(), b"CropBox", b"Resources", b"Rotate"] {
         if let Some(v) = inherited(doc, id, key)? {

@@ -1,17 +1,28 @@
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router";
-import { KeyRound, Loader2, LogOut, ShieldCheck } from "lucide-react";
+import { Link, useNavigate, useSearchParams } from "react-router";
+import { KeyRound, Loader2, LogOut, ShieldCheck, UserPlus } from "lucide-react";
+import { SlidingTabs } from "~/components/SlidingTabs";
 
 interface AuthStatus {
   auth_enabled: boolean;
   authenticated: boolean;
   username: string | null;
   algorithm: string;
+  registration_enabled?: boolean;
+}
+
+function safeNextPath(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/";
+  return raw;
 }
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const nextPath = safeNextPath(searchParams.get("next"));
+
   const [status, setStatus] = useState<AuthStatus | null>(null);
+  const [mode, setMode] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -20,7 +31,12 @@ export default function LoginPage() {
   const loadStatus = () => {
     fetch("/api/auth/me", { headers: { Accept: "application/json" } })
       .then((r) => r.json())
-      .then((data: AuthStatus) => setStatus(data))
+      .then((data: AuthStatus) => {
+        setStatus(data);
+        if (data.registration_enabled === false) {
+          setMode("login");
+        }
+      })
       .catch(() => setStatus(null));
   };
 
@@ -33,17 +49,18 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/auth/login", {
+      const endpoint = mode === "register" ? "/api/auth/register" : "/api/auth/login";
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
       const body = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(body.error || "Sign in failed");
+      if (!res.ok) throw new Error(body.error || "Authentication failed");
       loadStatus();
-      navigate("/");
+      navigate(nextPath);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign in failed");
+      setError(err instanceof Error ? err.message : "Authentication failed");
     } finally {
       setBusy(false);
     }
@@ -56,7 +73,7 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto flex max-w-md flex-col justify-center px-4 py-14 sm:px-6">
-      <div className="surface-card space-y-6 rounded-3xl p-7 shadow-sm">
+      <div className="surface-card cm-lift space-y-6 rounded-2xl p-7">
         <div className="text-center">
           <img src="/brand-assets/logo.svg" alt="520pdf" className="mx-auto h-9 w-auto dark:hidden" />
           <img
@@ -64,33 +81,39 @@ export default function LoginPage() {
             alt="520pdf"
             className="mx-auto hidden h-9 w-auto dark:block"
           />
-          <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-soft)] px-3 py-1 text-[11px] font-bold tracking-wider text-[var(--accent)] uppercase">
-            <ShieldCheck className="h-3.5 w-3.5" /> Argon2id (PHC v=19) Auth
+          <span className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-3 py-1 text-xs font-medium text-[var(--ink-secondary)]">
+            <ShieldCheck className="h-3.5 w-3.5 text-[var(--state-ok-fg)]" /> Argon2id (PHC v=19) Auth
           </span>
-          <h1 className="mt-3 text-2xl font-extrabold text-[var(--ink-primary)]">
-            Workspace Access
+          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-[var(--ink-primary)]">
+            Workspace &amp; API Key Access
           </h1>
-          <p className="mt-1 text-xs text-[var(--ink-secondary)]">
-            Passwords are verified strictly with Argon2id + HMAC-SHA256 HttpOnly sessions.
+          <p className="mt-1 text-xs leading-relaxed text-[var(--ink-secondary)]">
+            Passwords are hashed strictly with Argon2id + HMAC-SHA256 HttpOnly sessions.
           </p>
         </div>
 
         {status?.authenticated ? (
-          <div className="space-y-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.06] p-5 text-center">
-            <p className="text-sm font-semibold text-[var(--ink-primary)]">
-              Signed in as <span className="text-[var(--accent)]">{status.username}</span>
+          <div className="space-y-4 rounded-xl border border-[var(--state-ok-border)] bg-[var(--state-ok-bg)] p-5 text-center">
+            <p className="text-sm font-medium text-[var(--ink-primary)]">
+              Signed in as <span className="font-semibold text-[var(--state-ok-fg)]">{status.username}</span>
             </p>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              <Link
+                to="/api-keys"
+                className="cm-btn flex-1 rounded-xl bg-[var(--accent)] py-2.5 text-center text-xs font-semibold text-white hover:bg-[var(--accent-hover)]"
+              >
+                Manage API Keys
+              </Link>
               <Link
                 to="/"
-                className="flex-1 rounded-xl bg-[var(--accent)] py-2.5 text-center text-xs font-semibold text-white hover:bg-[var(--accent-hover)]"
+                className="cm-btn flex-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] py-2.5 text-center text-xs font-medium text-[var(--ink-primary)] hover:border-[var(--border-strong)]"
               >
-                Open Workbench
+                Workbench
               </Link>
               <button
                 type="button"
                 onClick={handleLogout}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-2.5 text-xs font-semibold"
+                className="cm-btn inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-2 text-xs font-medium text-[var(--ink-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--ink-primary)]"
               >
                 <LogOut className="h-3.5 w-3.5" /> Sign out
               </button>
@@ -98,47 +121,56 @@ export default function LoginPage() {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
-            {status && !status.auth_enabled && (
-              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-page)] p-3.5 text-xs leading-relaxed text-[var(--ink-secondary)]">
-                Open-access mode active (matching zero-account iHatePDF default). To enable login,
-                set <code className="font-mono font-semibold">AUTH_USER</code> and{" "}
-                <code className="font-mono font-semibold">AUTH_PASSWORD_HASH</code> via{" "}
-                <code className="font-mono font-semibold">pdf520 hash-password</code>.
-              </div>
+            {status?.registration_enabled !== false && (
+              <SlidingTabs
+                ariaLabel="Authentication mode"
+                fullWidth
+                value={mode}
+                onChange={(v) => {
+                  setMode(v as "login" | "register");
+                  setError(null);
+                }}
+                items={[
+                  { value: "login", label: "Sign in" },
+                  { value: "register", label: "Create account" },
+                ]}
+              />
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
+              <label className="block text-xs font-medium text-[var(--ink-secondary)]">
                 Username
               </label>
               <input
                 type="text"
                 name="username"
                 required
+                minLength={3}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="admin"
-                className="mt-1.5 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-page)] px-3.5 py-2.5 text-sm"
+                placeholder="developer"
+                className="cm-input mt-1.5 h-10 px-3.5 text-sm"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
-                Password
+              <label className="block text-xs font-medium text-[var(--ink-secondary)]">
+                Password {mode === "register" && <span className="font-normal text-[var(--ink-muted)]">(min 8 chars)</span>}
               </label>
               <input
                 type="password"
                 name="password"
                 required
+                minLength={mode === "register" ? 8 : 1}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••••••"
-                className="mt-1.5 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-page)] px-3.5 py-2.5 text-sm"
+                className="cm-input mt-1.5 h-10 px-3.5 text-sm"
               />
             </div>
 
             {error && (
-              <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-xs text-red-600 dark:text-red-400">
+              <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-xs text-[var(--state-bad-fg)]">
                 {error}
               </p>
             )}
@@ -146,10 +178,20 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={busy}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
+              className="cm-btn inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-4 text-sm font-semibold text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
             >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
-              {busy ? "Verifying Argon2id…" : "Sign in"}
+              {busy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : mode === "register" ? (
+                <UserPlus className="h-4 w-4" />
+              ) : (
+                <KeyRound className="h-4 w-4" />
+              )}
+              {busy
+                ? "Hashing Argon2id…"
+                : mode === "register"
+                  ? "Create Account & Continue"
+                  : "Sign in"}
             </button>
           </form>
         )}

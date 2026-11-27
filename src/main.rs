@@ -142,25 +142,68 @@ fn parse_args() -> Res<(PathBuf, f64, Option<PathBuf>)> {
     Ok((PathBuf::from(parts.join(" ")), target, output))
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CompressOptions {
+    pub target_bytes: usize,
+    pub max_dpi: Option<u32>,
+    pub jpeg_quality: Option<u8>,
+    pub force_recompress: bool,
+}
+
 /// Compress `input` toward `limit` bytes. Returns (dpi, quality, pdf bytes); bytes may exceed limit.
 pub fn compress(input: &Path, limit: usize) -> Res<(u32, u8, Vec<u8>)> {
+    compress_with_options(
+        input,
+        CompressOptions {
+            target_bytes: limit,
+            ..Default::default()
+        },
+    )
+}
+
+/// Compress `input` with customizable byte budget, max image DPI, and JPEG quality cap.
+pub fn compress_with_options(input: &Path, opts: CompressOptions) -> Res<(u32, u8, Vec<u8>)> {
+    compress_with_options_progress(input, opts, |_, _| {})
+}
+
+/// Compress `input` with customizable options while reporting monotonic `(percent, stage)` milestones.
+pub fn compress_with_options_progress<F: FnMut(u8, &str)>(
+    input: &Path,
+    opts: CompressOptions,
+    mut on_progress: F,
+) -> Res<(u32, u8, Vec<u8>)> {
+    if let Some(dpi) = opts.max_dpi
+        && !(36..=300).contains(&dpi)
+    {
+        return Err("dpi must be between 36 and 300".into());
+    }
+    if let Some(q) = opts.jpeg_quality
+        && !(15..=95).contains(&q)
+    {
+        return Err("quality must be between 15 and 95".into());
+    }
+    on_progress(24, "Inspecting PDF structure");
     let original = std::fs::read(input).map_err(|e| e.to_string())?;
-    if original.len() <= limit {
+    let custom_params =
+        opts.max_dpi.is_some() || opts.jpeg_quality.is_some() || opts.force_recompress;
+    if !custom_params && original.len() <= opts.target_bytes {
         let doc = Document::load_mem(&original).map_err(|e| format!("Invalid PDF: {e}"))?;
         if doc.get_pages().is_empty() {
             return Err("PDF has no pages".into());
         }
+        on_progress(95, "Already within target size");
         return Ok((0, 0, original)); // Already fits: preserve signatures and image fidelity byte-for-byte.
     }
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = std::env::temp_dir().join(format!("compress-pdf-{}-{n}", std::process::id()));
     std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
-    let result = search(input, limit, &tmp);
+    let result = search_with_options(input, opts, &tmp, &mut on_progress);
     let _ = std::fs::remove_dir_all(&tmp);
     let (dpi, q, bytes) = result?;
 
     // sanity: output loads with same page count
+    on_progress(91, "Verifying output pages");
     let pages = Document::load_mem(&bytes)
         .map_err(|e| format!("output unreadable: {e}"))?
         .get_pages()
@@ -172,23 +215,40 @@ pub fn compress(input: &Path, limit: usize) -> Res<(u32, u8, Vec<u8>)> {
     if orig.get_pages().len() != pages {
         return Err("page count changed".into());
     }
-    if bytes.len() > original.len() {
+    if !custom_params && bytes.len() > original.len() {
         return Ok((0, 0, original));
     }
     Ok((dpi, q, bytes))
 }
 
 /// Returns (dpi, quality, pdf bytes).
-fn search(input: &Path, limit: usize, tmp: &Path) -> Res<(u32, u8, Vec<u8>)> {
+fn search_with_options<F: FnMut(u8, &str)>(
+    input: &Path,
+    opts: CompressOptions,
+    tmp: &Path,
+    on_progress: &mut F,
+) -> Res<(u32, u8, Vec<u8>)> {
+    let base_dpi = opts.max_dpi.unwrap_or(BASE_DPI);
+    let q_hi = opts.jpeg_quality.unwrap_or(MAX_Q).clamp(FLOOR_Q, 95);
+    let q_lo = opts
+        .jpeg_quality
+        .map(|q| q.min(MIN_Q))
+        .unwrap_or(MIN_Q)
+        .clamp(FLOOR_Q, q_hi);
+    let relax_custom = opts.jpeg_quality.is_some_and(|q| q < MIN_Q);
+    let limit = opts.target_bytes;
+
+    on_progress(28, "Downsampling pages");
     let gs_out = tmp.join("gs.pdf");
-    gs_downsample(input, &gs_out, BASE_DPI)?;
+    gs_downsample(input, &gs_out, base_dpi)?;
+    on_progress(44, "Optimizing fonts & images");
     let mut doc = Document::load(&gs_out).map_err(|e| format!("load gs output: {e}"))?;
     slim_fonts(&mut doc);
     let mut base = collect_images(&doc);
     let placed = image_dpi(&doc);
     for i in &mut base {
-        // unplaced/unknown: assume gs already capped it at BASE_DPI
-        i.dpi = placed.get(&i.id).copied().unwrap_or(BASE_DPI as f64);
+        // unplaced/unknown: assume gs already capped it at base_dpi
+        i.dpi = placed.get(&i.id).copied().unwrap_or(base_dpi as f64);
     }
     let mut best_attempt: Option<(u32, u8, Vec<u8>)> = None;
     let mut track = |dpi: u32, q: u8, bytes: Vec<u8>| {
@@ -200,30 +260,56 @@ fn search(input: &Path, limit: usize, tmp: &Path) -> Res<(u32, u8, Vec<u8>)> {
         }
     };
 
+    let mut dpis: Vec<u32> = DPIS.iter().copied().filter(|&d| d <= base_dpi).collect();
+    if !dpis.contains(&base_dpi) {
+        dpis.insert(0, base_dpi);
+    }
+
+    // Exact custom (max_dpi, jpeg_quality) attempt first when caller specifies both.
+    if opts.max_dpi.is_some() && opts.jpeg_quality.is_some() {
+        on_progress(52, &format!("Encoding at {base_dpi} DPI (q{q_hi})"));
+        let exact_imgs = scaled(&base, base_dpi, relax_custom);
+        let bytes = build(&doc, &exact_imgs, q_hi, relax_custom)?;
+        if bytes.len() <= limit {
+            return Ok((base_dpi, q_hi, bytes));
+        }
+        track(base_dpi, q_hi, bytes);
+    }
+
     let mut imgs = Vec::new();
-    for dpi in DPIS {
-        imgs = scaled(&base, dpi, false);
-        let fit = best_q(&doc, &imgs, limit, MIN_Q, MAX_Q, false)?;
+    let total_passes = dpis.len().max(1);
+    for (idx, &dpi) in dpis.iter().enumerate() {
+        let pct = (48 + (((idx + 1) * 34) / total_passes)).min(84) as u8;
+        on_progress(
+            pct,
+            &format!("Optimizing pass {}/{} ({dpi} DPI)", idx + 1, total_passes),
+        );
+        imgs = scaled(&base, dpi, relax_custom);
+        let fit = best_q(&doc, &imgs, limit, q_lo, q_hi, relax_custom)?;
         if let Some((q, bytes)) = fit {
             return Ok((dpi, q, bytes));
         }
-        if let Ok(sample) = build(&doc, &imgs, MIN_Q, false) {
-            track(dpi, MIN_Q, sample);
+        if let Ok(sample) = build(&doc, &imgs, q_lo, relax_custom) {
+            track(dpi, q_lo, sample);
         }
     }
     // Second pass: drop quality floor on photos while preserving graphics.
-    let dpi = *DPIS.last().unwrap();
-    if let Some((q, b)) = best_q(&doc, &imgs, limit, FLOOR_Q, MIN_Q - 1, false)? {
-        return Ok((dpi, q, b));
-    }
-    if let Ok(sample) = build(&doc, &imgs, FLOOR_Q, false) {
-        track(dpi, FLOOR_Q, sample);
+    let dpi = *dpis.last().unwrap_or(&base_dpi);
+    if q_lo > FLOOR_Q {
+        on_progress(86, "Fine-tuning photo quality");
+        if let Some((q, b)) = best_q(&doc, &imgs, limit, FLOOR_Q, q_lo - 1, false)? {
+            return Ok((dpi, q, b));
+        }
+        if let Ok(sample) = build(&doc, &imgs, FLOOR_Q, false) {
+            track(dpi, FLOOR_Q, sample);
+        }
     }
 
     // Third pass: relax graphics/SMask floor and downscale further.
-    for fallback_dpi in [72u32, 60, 48, 36] {
+    on_progress(88, "Applying compact fallback pass");
+    for fallback_dpi in [72u32, 60, 48, 36].into_iter().filter(|&d| d <= base_dpi) {
         let low_imgs = scaled(&base, fallback_dpi, true);
-        if let Some((q, b)) = best_q(&doc, &low_imgs, limit, FLOOR_Q, MAX_Q, true)? {
+        if let Some((q, b)) = best_q(&doc, &low_imgs, limit, FLOOR_Q, q_hi, true)? {
             return Ok((fallback_dpi, q, b));
         }
         if let Ok(sample) = build(&doc, &low_imgs, FLOOR_Q, true) {
@@ -232,7 +318,8 @@ fn search(input: &Path, limit: usize, tmp: &Path) -> Res<(u32, u8, Vec<u8>)> {
     }
 
     // Fourth pass: rasterize complex vector/ICC/transparency pages to compact RGB JPEG PDF pages.
-    if let Some((dpi, q, b)) = gs_raster_fallback(input, limit, tmp)? {
+    on_progress(90, "Rasterizing complex pages");
+    if let Some((dpi, q, b)) = gs_raster_fallback(input, limit, tmp, base_dpi, q_hi)? {
         if b.len() <= limit {
             return Ok((dpi, q, b));
         }
@@ -459,9 +546,15 @@ fn gs_downsample(src: &Path, dst: &Path, dpi: u32) -> Res<()> {
     }
 }
 
-fn gs_raster_fallback(input: &Path, limit: usize, tmp: &Path) -> Res<Option<(u32, u8, Vec<u8>)>> {
+fn gs_raster_fallback(
+    input: &Path,
+    limit: usize,
+    tmp: &Path,
+    max_dpi: u32,
+    max_q: u8,
+) -> Res<Option<(u32, u8, Vec<u8>)>> {
     let mut smallest: Option<(u32, u8, Vec<u8>)> = None;
-    for (idx, &(dpi, q)) in [
+    for (idx, &(raw_dpi, raw_q)) in [
         (120u32, 65u8),
         (96, 55),
         (80, 45),
@@ -473,6 +566,8 @@ fn gs_raster_fallback(input: &Path, limit: usize, tmp: &Path) -> Res<Option<(u32
     .iter()
     .enumerate()
     {
+        let dpi = raw_dpi.min(max_dpi);
+        let q = raw_q.min(max_q);
         let rdir = tmp.join(format!("raster-{idx}"));
         std::fs::create_dir_all(&rdir).map_err(|e| e.to_string())?;
         let pattern = rdir.join("page-%04d.jpg");
@@ -1029,5 +1124,61 @@ mod tests {
             "compressed output {} exceeded 250 KB",
             out.len()
         );
+    }
+
+    #[test]
+    fn compress_with_custom_dpi_and_quality_respects_bounds() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("custom.pdf");
+        let (built, _) = crate::features::resume::run(
+            "resume-builder",
+            &[],
+            &std::collections::HashMap::from([(
+                "resume_json".into(),
+                r#"{"name":"DPI Test User","summary":"Checking customizable dpi and quality bounds"}"#.into(),
+            )]),
+            dir.path(),
+        )
+        .unwrap();
+        std::fs::copy(&built, &path).unwrap();
+
+        assert!(
+            super::compress_with_options(
+                &path,
+                super::CompressOptions {
+                    target_bytes: 250_000,
+                    max_dpi: Some(20),
+                    jpeg_quality: None,
+                    force_recompress: true,
+                }
+            )
+            .is_err()
+        );
+        assert!(
+            super::compress_with_options(
+                &path,
+                super::CompressOptions {
+                    target_bytes: 250_000,
+                    max_dpi: Some(96),
+                    jpeg_quality: Some(99),
+                    force_recompress: true,
+                }
+            )
+            .is_err()
+        );
+
+        let (dpi, q, out) = super::compress_with_options(
+            &path,
+            super::CompressOptions {
+                target_bytes: 500_000,
+                max_dpi: Some(96),
+                jpeg_quality: Some(55),
+                force_recompress: true,
+            },
+        )
+        .unwrap();
+        assert!(dpi <= 96);
+        assert!(q <= 55);
+        assert!(out.starts_with(b"%PDF-"));
     }
 }

@@ -70,7 +70,7 @@ export default function CompressImage() {
   return (
     <ToolShell
       title="Compress Image"
-      description="Resize and compress JPG, PNG, or WebP images in pure Rust with live before/after inspection."
+      description="Resize and compress JPG, PNG, or WebP images locally with live before/after preview."
       category="Optimize"
     >
       <div className="surface-card space-y-6 rounded-2xl p-6">

@@ -1,0 +1,56 @@
+---
+title: Code Examples (cURL, TypeScript & Python)
+description: Copy-paste recipes using 520pdf API tokens across compress, merge, watermark, edit-pdf, and Office converters.
+---
+
+## Compress PDF with Custom KB, DPI & Quality (`curl`)
+
+```bash
+curl -fSL -o compressed.pdf \
+  -H "Authorization: Bearer $PDF520_TOKEN" \
+  -F "files=@report.pdf" \
+  -F "target_kb=250" \
+  -F "dpi=96" \
+  -F "quality=55" \
+  -F "remove_metadata=true" \
+  http://127.0.0.1:8080/api/v1/tools/compress
+```
+
+## Edit PDF Overlay (`fetch` / TypeScript)
+
+```ts
+const form = new FormData();
+form.append("files", pdfFile, pdfFile.name);
+form.append(
+  "annotations",
+  JSON.stringify([
+    { type: "text", page: 1, x: 60, y: 740, text: "Approved", font_size: 18, color: "#E63228" },
+    { type: "highlight", page: 1, x: 60, y: 690, width: 200, height: 18, color: "#FACC15", opacity: 0.38 },
+  ]),
+);
+
+const res = await fetch("http://127.0.0.1:8080/api/v1/tools/edit-pdf", {
+  method: "POST",
+  headers: { Authorization: `Bearer ${process.env.PDF520_TOKEN}` },
+  body: form,
+});
+const editedBytes = await res.arrayBuffer();
+```
+
+## Multi-Grid Watermark & Office Conversion (`python`)
+
+```python
+import os, requests
+
+headers = {"X-API-Key": os.environ["PDF520_TOKEN"]}
+
+with open("contract.pdf", "rb") as f:
+    res = requests.post(
+        "http://127.0.0.1:8080/api/v1/tools/watermark",
+        headers=headers,
+        files={"files": ("contract.pdf", f, "application/pdf")},
+        data={"text": "CONFIDENTIAL", "color": "#E63228", "cols": "3", "rows": "3", "rotation": "35", "opacity": "0.25"},
+    )
+    res.raise_for_status()
+    open("contract_520pdf_watermark.pdf", "wb").write(res.content)
+```

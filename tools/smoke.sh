@@ -52,11 +52,26 @@ assert len(tools) == 36, f"expected 36 tools, got {len(tools)}"
 PY
 echo "PASS /api/tools (36 tools)"
 
-for route in / /drop /login /merge-pdfs /split-pdf /compress-pdf /compress-image /pdf-to-image /image-to-pdf /watermark-pdf /lock-pdf /sign-pdf /edit-pdf /equation-to-image /latex-resume /resume-builder; do
+for route in / /drop /login /api-keys /docs /docs/compress-pdf /merge-pdfs /split-pdf /compress-pdf /compress-image /pdf-to-image /image-to-pdf /watermark-pdf /lock-pdf /sign-pdf /edit-pdf /equation-to-image /latex-resume /resume-builder; do
   check_get "$route"
   grep -qi '<!doctype html>' "$TMP/body"
 done
 echo "PASS SPA routes"
+
+check_get /api/openapi.json
+python3 - "$TMP/body" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["openapi"].startswith("3."), d
+assert "/api/v1/tools/compress" in d["paths"], list(d["paths"])[:5]
+PY
+check_get "/api/docs/search?query=compress"
+python3 - "$TMP/body" <<'PY'
+import json, sys
+arr = json.load(open(sys.argv[1]))
+assert len(arr) >= 1 and any("compress" in item["url"] for item in arr), arr
+PY
+echo "PASS /api/openapi.json + /api/docs/search"
 
 check_get /api/auth/me
 python3 - "$TMP/body" <<'PY'
@@ -144,13 +159,35 @@ head -c 5 "$TMP/edited.pdf" | grep -q '%PDF-'
 
 post_tool pdf-to-word "$TMP/doc.docx" -F "files=@$TMP/NPWP.pdf"
 grep -qi 'filename="NPWP_520pdf_pdf-to-word.docx"' "$TMP/headers"
-python3 - "$TMP/doc.docx" <<'PY'
-import sys, zipfile
-with zipfile.ZipFile(sys.argv[1]) as z:
-    assert "word/document.xml" in z.namelist()
+post_tool pdf-to-word "$TMP/doc-exact.docx" -F "files=@$TMP/NPWP.pdf" -F "mode=exact"
+post_tool pdf-to-word "$TMP/doc-flow.docx" -F "files=@$TMP/NPWP.pdf" -F "mode=flow"
+python3 - "$TMP/doc.docx" "$TMP/doc-exact.docx" "$TMP/doc-flow.docx" <<'PY'
+import sys, zipfile, xml.etree.ElementTree as ET
+auto_p, exact_p, flow_p = sys.argv[1], sys.argv[2], sys.argv[3]
+for path in (auto_p, exact_p, flow_p):
+    with zipfile.ZipFile(path) as z:
+        names = z.namelist()
+        assert "word/document.xml" in names, path
+        assert "word/_rels/document.xml.rels" in names, path
+        assert "[Content_Types].xml" in names, path
+        doc_xml = z.read("word/document.xml").decode("utf-8")
+        ET.fromstring(doc_xml)
+        assert "w:t" in doc_xml, path
+with zipfile.ZipFile(exact_p) as z:
+    doc_xml = z.read("word/document.xml").decode("utf-8")
+    assert "framePr" in doc_xml or "w:t" in doc_xml
 PY
 post_tool word-to-pdf "$TMP/from-docx.pdf" -F "files=@$TMP/doc.docx"
 head -c 5 "$TMP/from-docx.pdf" | grep -q '%PDF-'
+
+post_tool pdf-to-word "$TMP/scan-doc.docx" -F "files=@$TMP/from-img.pdf" -F "mode=auto" -F "ocr_language=ind+eng"
+python3 - "$TMP/scan-doc.docx" <<'PY'
+import sys, zipfile, xml.etree.ElementTree as ET
+with zipfile.ZipFile(sys.argv[1]) as z:
+    doc_xml = z.read("word/document.xml").decode("utf-8")
+    plain = " ".join(ET.fromstring(doc_xml).itertext())
+    assert "Nadia" in plain or "520" in plain or len(plain.strip()) >= 10, f"OCR missed scanned text: {plain!r}"
+PY
 
 post_tool pdf-to-powerpoint "$TMP/deck-vis.pptx" -F "files=@$TMP/NPWP.pdf" -F "mode=visual"
 post_tool pdf-to-powerpoint "$TMP/deck-edit.pptx" -F "files=@$TMP/NPWP.pdf" -F "mode=editable"
@@ -185,7 +222,54 @@ b = open(sys.argv[1], "rb").read(4)
 assert b[:2] == b"\xff\xd8", f"not jpeg: {b!r}"
 PY
 
-# 5. Optional Argon2id authentication roundtrip test if binary path exists
+# 5. API Token auth + customizable compress (dpi & quality) + scope + revoke roundtrip
+UNAUTH_TOK=$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/tokens")
+test "$UNAUTH_TOK" = "401"
+SMOKE_USER="smoke_$(date +%s)"
+REG_CODE=$(curl -sS -c "$TMP/tok_cookies.txt" -o /dev/null -w '%{http_code}' -H "Content-Type: application/json" -d "{\"username\":\"$SMOKE_USER\",\"password\":\"SmokePass520!\"}" "$BASE/api/auth/register")
+test "$REG_CODE" = "201"
+TOK_JSON=$(curl -sS -b "$TMP/tok_cookies.txt" -H "Content-Type: application/json" -d '{"name":"Smoke CI Key","scopes":["compress","merge"],"expires_in_days":30}' "$BASE/api/tokens")
+TOK_SECRET=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["token"])' "$TOK_JSON")
+TOK_ID=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["meta"]["id"])' "$TOK_JSON")
+curl -sS -D "$TMP/tok_headers" -o "$TMP/tok_compress.pdf" -H "Authorization: Bearer $TOK_SECRET" -F "files=@$TMP/NPWP.pdf" -F "target_kb=250" -F "dpi=96" -F "quality=55" "$BASE/api/v1/tools/compress"
+grep -qi "^x-520pdf-token-id: $TOK_ID" "$TMP/tok_headers"
+head -c 5 "$TMP/tok_compress.pdf" | grep -q '%PDF-'
+OUT_SCOPE=$(curl -sS -o /dev/null -w '%{http_code}' -H "X-API-Key: $TOK_SECRET" -F "files=@$TMP/NPWP.pdf" "$BASE/api/v1/tools/split")
+test "$OUT_SCOPE" = "403"
+MERGE_TOK=$(curl -sS -o "$TMP/tok_merge.pdf" -w '%{http_code}' -H "X-API-Key: $TOK_SECRET" -F "files=@$TMP/NPWP.pdf" -F "files=@$TMP/latex.pdf" "$BASE/api/tools/merge")
+test "$MERGE_TOK" = "200"
+BAD_TOK=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer 520pdf_k_deadbeef_invalid" -F "files=@$TMP/NPWP.pdf" "$BASE/api/v1/tools/compress")
+test "$BAD_TOK" = "401"
+BAD_REV_CODE=$(curl -sS -b "$TMP/tok_cookies.txt" -H "Content-Type: application/json" -d '{"password":"WrongPassword!"}' -o /dev/null -w '%{http_code}' "$BASE/api/tokens/$TOK_ID/reveal")
+test "$BAD_REV_CODE" = "401"
+REV_JSON=$(curl -sS -b "$TMP/tok_cookies.txt" -H "Content-Type: application/json" -d '{"password":"SmokePass520!"}' "$BASE/api/tokens/$TOK_ID/reveal")
+REVEALED_TOK=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["token"])' "$REV_JSON")
+test "$REVEALED_TOK" = "$TOK_SECRET"
+REV_CODE=$(curl -sS -b "$TMP/tok_cookies.txt" -X DELETE -o /dev/null -w '%{http_code}' "$BASE/api/tokens/$TOK_ID")
+test "$REV_CODE" = "200"
+AFTER_REV=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOK_SECRET" -F "files=@$TMP/NPWP.pdf" "$BASE/api/v1/tools/compress")
+test "$AFTER_REV" = "401"
+
+# 5b. CORS preflight default (*) + PUT /api/cors + job progress probe
+CORS_OPT=$(curl -sS -D "$TMP/cors_opt_headers" -o /dev/null -w '%{http_code}' -X OPTIONS -H "Origin: https://smoke-client.example" -H "Access-Control-Request-Method: POST" "$BASE/api/v1/tools/compress")
+test "$CORS_OPT" = "204"
+grep -qi "^access-control-allow-origin: \*" "$TMP/cors_opt_headers"
+
+curl -sS -b "$TMP/tok_cookies.txt" -X PUT -H "Content-Type: application/json" -d '{"origins":["https://smoke.example"]}' -o /dev/null "$BASE/api/cors"
+CORS_ALLOW=$(curl -sS -D "$TMP/cors_allow_headers" -o /dev/null -w '%{http_code}' -X OPTIONS -H "Origin: https://smoke.example" "$BASE/api/v1/tools/compress")
+test "$CORS_ALLOW" = "204"
+grep -qi "^access-control-allow-origin: https://smoke.example" "$TMP/cors_allow_headers"
+grep -qi "^access-control-allow-credentials: true" "$TMP/cors_allow_headers"
+
+curl -sS -D "$TMP/cors_block_headers" -o /dev/null -X OPTIONS -H "Origin: https://other.example" "$BASE/api/v1/tools/compress"
+! grep -qi "^access-control-allow-origin:" "$TMP/cors_block_headers"
+
+curl -sS -b "$TMP/tok_cookies.txt" -X PUT -H "Content-Type: application/json" -d '{"origins":["*"]}' -o /dev/null "$BASE/api/cors"
+JOB_JSON=$(curl -sS "$BASE/api/jobs/smoke-probe")
+echo "$JOB_JSON" | grep -q '"percent"'
+echo "PASS API token create -> reveal -> revoke + CORS + job progress"
+
+# 6. Optional Argon2id env admin authentication roundtrip test if binary path exists
 BIN=${BIN:-./target/release/pdf520}
 if [ -x "$BIN" ]; then
   HASH=$("$BIN" hash-password 'Secret-520!')

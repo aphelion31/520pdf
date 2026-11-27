@@ -104,14 +104,14 @@ export function BasecoatSelect({
         onClick={() => setOpen((prev) => !prev)}
         onKeyDown={handleKeyDown}
         className={`bc-select-trigger w-full ${
-          size === "sm" ? "h-8 px-2.5 text-xs" : "h-10 px-3.5 text-sm"
+          size === "sm" ? "h-8 px-2.5 text-xs" : "h-9 px-3 text-sm"
         }`}
       >
         <span className="truncate text-left font-medium text-[var(--ink-primary)]">
           {selected ? selected.label : placeholder}
         </span>
         <ChevronsUpDown
-          className="ml-2 h-3.5 w-3.5 shrink-0 text-[var(--ink-muted)] opacity-75"
+          className="h-3.5 w-3.5 shrink-0 text-[var(--ink-muted)] opacity-75"
           aria-hidden="true"
         />
       </button>

@@ -182,7 +182,7 @@ export default function LatexResume() {
   return (
     <ToolShell
       title="LaTeX Resume"
-      description="Write or customize your LaTeX resume with 3 templates and compile directly to A4 PDF in pure Rust (pdf-writer)."
+      description="Write or customize your LaTeX resume with 3 templates and export cleanly to A4 PDF."
       category="Create"
     >
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -254,7 +254,7 @@ export default function LatexResume() {
             className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-5 py-3 text-sm font-semibold text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            {busy ? "Rendering PDF in Rust…" : "Export A4 PDF"}
+            {busy ? "Generating PDF…" : "Export A4 PDF"}
           </button>
 
           {result && <ResultBanner blob={result.blob} filename={result.filename} />}

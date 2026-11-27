@@ -113,7 +113,7 @@ export const TOOLS_CATALOG: ToolMeta[] = [
   {
     id: "latex-resume",
     name: "LaTeX Resume",
-    description: "Write a resume in LaTeX with 3 templates and export to PDF via pure Rust.",
+    description: "Write a resume in LaTeX with 3 templates and export cleanly to PDF.",
     category: "Create",
     route: "/latex-resume",
     accept: ".tex,.txt",
@@ -123,7 +123,8 @@ export const TOOLS_CATALOG: ToolMeta[] = [
   {
     id: "resume-builder",
     name: "Resume Builder",
-    description: "Build a resume with visual sections or JSON and download crisp A4 PDF.",
+    description:
+      "Build an ATS-friendly CV step by step with photo, live styling, score check, and A4 PDF export.",
     category: "Create",
     route: "/resume-builder",
     accept: ".json",
@@ -179,7 +180,7 @@ export const TOOLS_CATALOG: ToolMeta[] = [
   {
     id: "forms",
     name: "PDF forms",
-    description: "Discover AcroForm fields and populate text or checkbox values.",
+    description: "Discover interactive PDF form fields and fill text or checkbox values.",
     category: "Edit",
     route: "/tools/forms",
     accept: ".pdf",
@@ -197,7 +198,7 @@ export const TOOLS_CATALOG: ToolMeta[] = [
   {
     id: "pdf-to-word",
     name: "PDF to Word",
-    description: "Convert PDF documents into editable Word (.docx) files locally.",
+    description: "Convert PDF documents into editable Word (.docx) files.",
     category: "Convert",
     route: "/tools/pdf-to-word",
     accept: ".pdf",
@@ -269,7 +270,7 @@ export const TOOLS_CATALOG: ToolMeta[] = [
   {
     id: "compare",
     name: "Compare PDF",
-    description: "Diff two PDFs by extracted text lines and rasterized appearance.",
+    description: "Compare two PDFs side by side for text and visual differences.",
     category: "Edit",
     route: "/tools/compare",
     accept: ".pdf",
@@ -314,7 +315,7 @@ export const TOOLS_CATALOG: ToolMeta[] = [
   {
     id: "repair",
     name: "Repair PDF",
-    description: "Rebuild damaged xref tables and recover readable structure.",
+    description: "Fix damaged PDF files and recover unreadable pages.",
     category: "Optimize",
     route: "/tools/repair",
     accept: ".pdf",
@@ -323,7 +324,7 @@ export const TOOLS_CATALOG: ToolMeta[] = [
   {
     id: "redact",
     name: "Redact PDF",
-    description: "Rasterize pages and permanently black out sensitive regions.",
+    description: "Permanently black out sensitive text and regions from a PDF.",
     category: "Security",
     route: "/tools/redact",
     accept: ".pdf",

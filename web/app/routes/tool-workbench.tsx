@@ -3,6 +3,7 @@ import { useParams } from "react-router";
 import { Loader2, Play, RotateCw } from "lucide-react";
 import { BasecoatSelect } from "~/components/BasecoatSelect";
 import { FileDropzone } from "~/components/FileDropzone";
+import { HelpTip } from "~/components/HelpTip";
 import { ResultBanner } from "~/components/ResultBanner";
 import { ToolShell } from "~/components/ToolShell";
 import { useFileVault } from "~/context/file-vault";
@@ -212,25 +213,29 @@ export default function ToolWorkbench() {
               const type = f.type || "text";
               if (type === "checkbox") {
                 return (
-                  <label
+                  <div
                     key={f.name}
-                    className="sm:col-span-2 flex items-center gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-page)] px-4 py-3 text-sm"
+                    className="sm:col-span-2 flex items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-page)] px-4 py-3 text-sm"
                   >
-                    <input
-                      type="checkbox"
-                      checked={Boolean(values[f.name])}
-                      onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.checked }))}
-                      className="h-4 w-4 accent-[var(--accent)]"
-                    />
-                    <span>{f.label || f.name}</span>
-                  </label>
+                    <label className="flex flex-1 cursor-pointer items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(values[f.name])}
+                        onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.checked }))}
+                        className="h-4 w-4 accent-[var(--accent)]"
+                      />
+                      <span>{f.label || f.name}</span>
+                    </label>
+                    <HelpTip text={f.help} />
+                  </div>
                 );
               }
               if (type === "textarea") {
                 return (
                   <div key={f.name} className="sm:col-span-2">
-                    <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
-                      {f.label || f.name}
+                    <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--ink-secondary)]">
+                      <span>{f.label || f.name}</span>
+                      <HelpTip text={f.help} />
                     </label>
                     <textarea
                       rows={3}
@@ -247,8 +252,9 @@ export default function ToolWorkbench() {
                 );
                 return (
                   <div key={f.name}>
-                    <label className="mb-1.5 block text-xs font-semibold text-[var(--ink-secondary)]">
-                      {f.label || f.name}
+                    <label className="mb-1.5 inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--ink-secondary)]">
+                      <span>{f.label || f.name}</span>
+                      <HelpTip text={f.help} />
                     </label>
                     <BasecoatSelect
                       ariaLabel={f.label || f.name}
@@ -261,8 +267,9 @@ export default function ToolWorkbench() {
               }
               return (
                 <div key={f.name}>
-                  <label className="block text-xs font-semibold text-[var(--ink-secondary)]">
-                    {f.label || f.name}
+                  <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--ink-secondary)]">
+                    <span>{f.label || f.name}</span>
+                    <HelpTip text={f.help} />
                   </label>
                   <input
                     type={type === "password" ? "password" : type === "number" ? "number" : "text"}

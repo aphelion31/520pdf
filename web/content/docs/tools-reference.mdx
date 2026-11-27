@@ -1,0 +1,47 @@
+---
+title: 36-Tool API Parameter Reference
+description: Complete multipart field reference for all 36 PDF, Office, OCR, Image, Edit, Security, Create, and AI tools.
+---
+
+Query `/api/tools` or `/api/openapi.json` anytime for the machine-readable schema.
+
+## Organize
+
+- **`merge`** (`.pdf`, multiple): Combine uploaded PDFs in order.
+- **`split`** (`.pdf`): `mode` (`extract`, `all`, `ranges`), `pages` (`"1,3-5"`), `ranges` (`"1-2;3-4"`). Returns PDF or ZIP.
+- **`organize`** (`.pdf`): `pages` (`"3,1,1"` — duplicates & deletions allowed).
+- **`rotate`** (`.pdf`, multiple): `angle` (`90`, `180`, `270`), `pages` (single PDF), or `rotations` JSON map (`{"1":180,"2":90}`). Batch uploads return `.zip`.
+
+## Optimize
+
+- **`compress`** (`.pdf`): `target_kb` (`>= 250`), `dpi` (`36..300`), `quality` (`15..95`), `quality_preset` (`low`/`medium`/`high`), `remove_metadata` (`true`/`false`).
+- **`compress-image`** (`.png,.jpg,.jpeg,.webp`): `target_kb`, `quality` (`1..100`), `max_width` (`16..12000`), `output_format` (`auto`/`jpeg`/`webp`/`png`).
+- **`repair`** (`.pdf`): Rebuild xref tables & verify via `qpdf --check`.
+
+## Convert & Office
+
+- **`pdf-to-image`** (`.pdf`): `mode` (`pages` = render every page; `extract` = extract embedded image XObjects), `pages`, `dpi` (`36..300`), `format` (`png`/`jpeg`/`webp`). Returns `.zip`.
+- **`image-to-pdf`** (`.jpg,.jpeg,.png,.webp`, multiple): `page_size` (`a4`/`letter`/`fit`), `orientation` (`portrait`/`landscape`), `margin` (`pt`).
+- **`pdf-to-word`** (`.pdf`): `mode` (`auto` default = smart editable layout + automatic hybrid OCR/table reconstruction on scanned pages, override Python via `PDF2DOCX_PYTHON`; `ocr` = force full-page OCR + visual table/banner reconstruction; `exact` = positioned frames & non-text graphics; `flow` = reflowable paragraphs & tables), `ocr_language` (`ind+eng` default, `eng`, `ind`) -> `.docx`. Uses PyMuPDF (`AGPL-3.0`) when enabled.
+- **`pdf-to-powerpoint`** (`.pdf`): `mode` (`visual` = slide images; `editable` = slide text boxes) -> `.pptx`.
+- **`pdf-to-excel`** (`.pdf`): `merge_sheets` (`false`/`true`) -> `.xlsx`.
+- **`word-to-pdf`** (`.doc,.docx,.odt,.rtf`), **`powerpoint-to-pdf`** (`.ppt,.pptx,.odp`), **`excel-to-pdf`** (`.xls,.xlsx,.ods,.csv`), **`office-to-pdf`**: LibreOffice with pure-Rust OpenXML/CSV fallbacks.
+- **`html-to-pdf`** (`.html,.htm` or inline `html` field): Local rendering with external resource fetches blocked (SSRF-safe).
+- **`pdf-to-markdown`** (`.pdf`): Extract structured text & tables to UTF-8 Markdown.
+- **`pdfa`** (`.pdf`): Archival PDF/A-2b conversion + compliance check.
+- **`scan-to-pdf`** & **`ocr-pdf`**: `language` (`eng`, `ind`, `vie`, `ind+eng`), `deskew` (`true`/`false`), `force_ocr` (`true`/`false` on `ocr-pdf`).
+
+## Edit, Security, Create & AI
+
+- **`edit-pdf`** (`.pdf`): `annotations` JSON array (`text`, `highlight`, `rect`, `ellipse`, `line`, `path`, `image`).
+- **`watermark`** (`.pdf`): `text` or `image` upload (`image_base64`), `color` (`#RRGGBB`), `count` (`1..64`), `cols`, `rows`, `rotation`, `opacity`, `font_size`, `pages`.
+- **`sign`** (`.pdf`): `text` or `image_base64`, `x`, `y`, `width`, `height`, `pages`.
+- **`crop`** (`.pdf`): `x`, `y`, `width`, `height` or `margin_left`/`margin_right`/`margin_top`/`margin_bottom`.
+- **`page-numbers`** (`.pdf`): `start`, `format` (`"Page {n} of {total}"`), `position` (`left`/`center`/`right`), `y`.
+- **`forms`** (`.pdf`): `action` (`discover`/`fill`), `fields` JSON string map.
+- **`compare`** (`.pdf`, 2 files): Text diff + per-page pixel comparison report.
+- **`protect`** (`.pdf`): `mode` (`visual` / `password`), `watermark_text`, `remove_metadata`, `password`, `owner_password`, `print`, `modify`, `extract`.
+- **`unlock`** (`.pdf`): `password`.
+- **`redact`** (`.pdf`): `rectangles` JSON array (`page`, `x`, `y`, `width`, `height`).
+- **`equation-to-image`**, **`latex-resume`**, **`resume-builder`**: Render equations or pure-Rust A4 resumes from JSON/LaTeX.
+- **`summarize`**, **`translate`**: Opt-in AI workflows requiring `consent=true` + server `AI_API_*` config.

@@ -3,7 +3,8 @@
     "**/*",
     "**/.server/**/*",
     "**/.client/**/*",
-    ".react-router/types/**/*"
+    ".react-router/types/**/*",
+    ".source/**/*"
   ],
   "compilerOptions": {
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
@@ -14,7 +15,8 @@
     "jsx": "react-jsx",
     "rootDirs": [".", "./.react-router/types"],
     "paths": {
-      "~/*": ["./app/*"]
+      "~/*": ["./app/*"],
+      "fumadocs-mdx:collections/*": ["./.source/*"]
     },
     "esModuleInterop": true,
     "verbatimModuleSyntax": true,

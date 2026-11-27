@@ -9,6 +9,8 @@
     "typecheck": "react-router typegen && tsc"
   },
   "dependencies": {
+    "fumadocs-core": "^16.19.7",
+    "fumadocs-ui": "^16.19.7",
     "html-to-image": "^1.11.13",
     "isbot": "^5",
     "katex": "^0.16.21",
@@ -21,9 +23,11 @@
     "@react-router/dev": "^8.5.1",
     "@tailwindcss/vite": "^4.2.2",
     "@types/katex": "^0.16.7",
+    "@types/mdx": "^2.0.14",
     "@types/node": "^22",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
+    "fumadocs-mdx": "^15.6.4",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
     "vite": "^8.0.3"

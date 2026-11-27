@@ -72,10 +72,10 @@ export function FileDropzone({
           setDragging(false);
           ingest(Array.from(e.dataTransfer.files ?? []));
         }}
-        className={`cursor-pointer rounded-2xl border-2 border-dashed p-6 text-center transition-colors ${
+        className={`cursor-pointer rounded-2xl border border-dashed p-6 text-center transition-colors duration-150 ${
           dragging
             ? "border-[var(--accent)] bg-[var(--accent-soft)]"
-            : "border-[var(--border-subtle)] bg-[var(--bg-page)] hover:border-[var(--accent)]/60"
+            : "border-[var(--border-strong)] bg-[var(--bg-band)] hover:border-[var(--ink-muted)]"
         }`}
       >
         <input

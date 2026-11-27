@@ -1,0 +1,46 @@
+---
+title: Authentication & Argon2id Sessions
+description: Sign in or register with Argon2id (PHC v=19) to create scoped API keys, and authenticate API requests with Bearer or X-API-Key headers.
+---
+
+API key creation and revocation are always protected by authenticated **Argon2id** user sessions.
+
+## Account Modes
+
+1. **Self-Service Workspace Mode (Default)**
+   - Visit [`/login`](/login) to **Create account** or **Sign in**.
+   - Passwords are hashed using **Argon2id (`v=19`)** with 16-byte CSPRNG salts and verified in constant time.
+   - Sessions are stored in `HttpOnly; SameSite=Lax` HMAC-SHA256 signed cookies (`520pdf_session`, 7-day TTL).
+2. **Managed Admin Mode (`AUTH_USER`)**
+   - Generate an Argon2id PHC hash cleanly:
+     ```bash
+     ./target/release/pdf520 hash-password 'replace-with-strong-password'
+     ```
+   - Start `pdf520` with `AUTH_USER=admin` and `AUTH_PASSWORD_HASH='$argon2id$v=19$...'`.
+   - Self-registration (`POST /api/auth/register`) is automatically disabled when `AUTH_USER` is set (or when `DISABLE_REGISTRATION=true`).
+
+## Strict API Key Gate (`REQUIRE_API_KEY=true`)
+
+Set `REQUIRE_API_KEY=true` to require either a valid `Authorization: Bearer <token>` / `X-API-Key: <token>` header or an authenticated browser session on every `POST /api/tools/{tool}` and `POST /api/v1/tools/{tool}` request.
+
+```bash
+DATA_DIR=/var/lib/520pdf REQUIRE_API_KEY=true ./target/release/pdf520 serve
+```
+
+## HTTP Auth Endpoints
+
+### Register Account
+
+```bash
+curl -sS -c cookies.txt -X POST http://127.0.0.1:8080/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"developer","password":"StrongPassword520!"}'
+```
+
+### Sign In
+
+```bash
+curl -sS -c cookies.txt -X POST http://127.0.0.1:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"developer","password":"StrongPassword520!"}'
+```

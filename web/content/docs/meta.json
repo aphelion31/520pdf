@@ -1,0 +1,11 @@
+{
+  "title": "520pdf Documentation",
+  "pages": [
+    "index",
+    "authentication",
+    "api-tokens",
+    "compress-pdf",
+    "tools-reference",
+    "examples"
+  ]
+}

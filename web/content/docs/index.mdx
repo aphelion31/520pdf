@@ -1,0 +1,30 @@
+---
+title: Introduction to 520pdf API
+description: Self-hosted single-binary Rust PDF, Office, OCR, and media processing API with 36 tools and scoped API keys.
+---
+
+**520pdf** (*wǒ ài nǐ PDF*) compiles all 36 PDF, Office, image, resume, math, and AI workflows into a single **Rust (Axum 0.8)** binary with a **React Router 8** web workbench and built-in REST API.
+
+## Base URLs & Endpoints
+
+Every tool is exposed identically under both `/api/tools/{tool}` and the versioned `/api/v1/tools/{tool}` endpoint using `multipart/form-data`:
+
+- `GET /api/tools` — Live JSON catalog of all **36 tools**, accepted file extensions, routes, and configurable option fields.
+- `GET /api/openapi.json` — OpenAPI 3.1.0 specification generated live from the tool catalog.
+- `POST /api/v1/tools/{tool}` — Execute any tool cleanly with `files` + customizable parameters.
+- `GET /api/auth/me`, `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout` — Argon2id user sessions (`HttpOnly` HMAC-SHA256 cookies).
+- `GET /api/tokens`, `POST /api/tokens`, `DELETE /api/tokens/{id}` — Scoped API key management (requires a signed-in user session).
+
+## Limits & Privacy Defaults
+
+| Setting | Default | Notes |
+| --- | --- | --- |
+| Max upload payload | `50 MiB` | Enforced at Axum multipart boundary |
+| Max files per request | `30` | Up to 30 uploaded files per call |
+| Job concurrency | `2` | Semaphore-bounded background workers |
+| Execution timeout | `180 s` | Temporary workdirs deleted immediately after response |
+| Open vs. gated access | Open by default | Set `REQUIRE_API_KEY=true` or `AUTH_USER` to require tokens/sessions |
+
+## Machine-Readable Output Naming
+
+Every file download returns `Content-Disposition: attachment; filename="<stem>_520pdf_<tool>.<ext>"` alongside `X-Content-Type-Options: nosniff` and `Cache-Control: no-store`.

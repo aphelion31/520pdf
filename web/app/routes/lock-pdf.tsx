@@ -53,7 +53,7 @@ export default function LockPdf() {
   return (
     <ToolShell
       title="Protect PDF"
-      description="Add visual confidentiality stamps and strip Info metadata (pure Rust), or encrypt with AES-256 via QPDF."
+      description="Add visual confidentiality stamps and remove hidden metadata, or lock your PDF with a password."
       category="Security"
     >
       <div className="surface-card space-y-6 rounded-2xl p-6">
@@ -77,10 +77,10 @@ export default function LockPdf() {
             }`}
           >
             <p className="text-sm font-bold text-[var(--ink-primary)]">
-              Visual Protection + Metadata Strip
+              Visual Protection + Metadata Wipe
             </p>
             <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
-              Pure-Rust local mode · Diagonal stamp, protective frame & metadata wipe
+              Instant stamp, border frame & clears hidden document info
             </p>
           </button>
 
@@ -93,9 +93,9 @@ export default function LockPdf() {
                 : "border-[var(--border-subtle)] bg-[var(--bg-page)]"
             }`}
           >
-            <p className="text-sm font-bold text-[var(--ink-primary)]">AES-256 Password Encryption</p>
+            <p className="text-sm font-bold text-[var(--ink-primary)]">Password Encryption</p>
             <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
-              Requires QPDF runtime (Docker / Linux container)
+              Lock file access & editing with AES-256 passwords
             </p>
           </button>
         </div>
@@ -166,7 +166,7 @@ export default function LockPdf() {
               </div>
             </div>
             <p className="inline-flex items-center gap-2 text-xs text-[var(--ink-muted)]">
-              <ShieldAlert className="h-3.5 w-3.5" /> Passwords are passed through private per-job files, never process argv.
+              <ShieldAlert className="h-3.5 w-3.5" /> Passwords stay private and are never written to logs.
             </p>
           </div>
         )}

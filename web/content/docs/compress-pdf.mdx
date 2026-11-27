@@ -1,0 +1,36 @@
+---
+title: Compress PDF Customization (KB, DPI & Quality)
+description: Control target_kb, max image DPI (36-300), JPEG quality cap (15-95), preset mix, and Info metadata stripping via API.
+---
+
+`POST /api/v1/tools/compress` combines Ghostscript `/RGB` normalization, TrueType font-hint stripping, progressive `mozjpeg` MS-SSIM encoding, SMask relaxation, and compact PDF raster fallback when needed.
+
+## Multipart Form Fields
+
+| Field | Type | Default | Constraints & Behavior |
+| --- | --- | --- | --- |
+| `files` | File (`.pdf`) | Required | Exactly 1 PDF file |
+| `target_kb` | Integer string | `250` | `250` to `100000` KB (`250 KB` strict minimum floor) |
+| `dpi` | Integer string | Auto (`<= 150`) | Optional max image DPI (`36` to `300`) |
+| `quality` | Integer string | Auto (`30-75`) | Optional max JPEG quality (`15` to `95`) |
+| `quality_preset` | Enum | `high` | `low` (75%), `medium` (45%), `high` (250 KB) — used if `target_kb` omitted |
+| `remove_metadata` | Boolean | `false` | `"true"` strips `Title`, `Author`, `Subject`, `Keywords` and stamps `Producer=520pdf` |
+
+## Response Diagnostic Headers
+
+- `X-Compress-Status`: `OK` if output size `<= target_kb * 1000` bytes, otherwise `OVER_TARGET`
+- `X-Compress-Dpi`: Effective image DPI used by the optimizer (`0` when input already fit untouched)
+- `X-Compress-Quality`: Effective `mozjpeg` quality applied
+
+## Custom KB + DPI + Quality Example
+
+```bash
+curl -sS -D - -o document_520pdf_compress.pdf \
+  -H "Authorization: Bearer $API_TOKEN" \
+  -F "files=@document.pdf" \
+  -F "target_kb=300" \
+  -F "dpi=110" \
+  -F "quality=65" \
+  -F "remove_metadata=true" \
+  http://127.0.0.1:8080/api/v1/tools/compress
+```

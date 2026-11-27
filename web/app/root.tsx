@@ -11,22 +11,23 @@ import {
 } from "react-router";
 import type { Route } from "./+types/root";
 import {
-  FileCode2,
+  BookOpen,
   FileUser,
   FolderOpen,
+  KeyRound,
   LayoutGrid,
   LogIn,
-  Minimize2,
   Moon,
-  Sigma,
   Sparkles,
   Sun,
   UploadCloud,
 } from "lucide-react";
+import { RootProvider } from "fumadocs-ui/provider/react-router";
 import { FileVaultProvider, useFileVault } from "./context/file-vault";
 import "./app.css";
 
 const THEME_INIT_SCRIPT = `(function(){try{var t=localStorage.getItem("520pdf.theme");var d=t==="dark"||(t==="auto"&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(d){document.documentElement.classList.add("dark");document.documentElement.style.colorScheme="dark";}else{document.documentElement.style.colorScheme="light";}}catch(e){}})();`;
+const MOTION_INIT_SCRIPT = `(function(){try{var m=localStorage.getItem("520pdf.motion");document.documentElement.dataset.motion=m==="off"?"off":"on";}catch(e){}})();`;
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -42,11 +43,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <link rel="icon" type="image/svg+xml" href="/brand-assets/favicon.svg" />
         <link rel="apple-touch-icon" href="/brand-assets/icon.svg" />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: MOTION_INIT_SCRIPT }} />
         <Meta />
         <Links />
       </head>
       <body className="min-h-dvh antialiased">
-        {children}
+        <RootProvider
+          search={{ options: { api: "/api/docs/search" } }}
+          theme={{
+            attribute: "class",
+            storageKey: "520pdf.theme",
+            defaultTheme: "light",
+          }}
+        >
+          {children}
+        </RootProvider>
         <ScrollRestoration />
         <Scripts />
       </body>
@@ -58,10 +69,16 @@ function SiteChrome({ children }: { children: React.ReactNode }) {
   const { files } = useFileVault();
   const { pathname } = useLocation();
   const [dark, setDark] = useState(false);
+  const [motionOn, setMotionOn] = useState(true);
 
   useEffect(() => {
     setDark(document.documentElement.classList.contains("dark"));
+    setMotionOn(document.documentElement.dataset.motion !== "off");
   }, []);
+
+  if (pathname === "/docs" || pathname.startsWith("/docs/")) {
+    return <>{children}</>;
+  }
 
   const toggleTheme = () => {
     const next = !dark;
@@ -75,18 +92,32 @@ function SiteChrome({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const toggleMotion = () => {
+    const next = !motionOn;
+    setMotionOn(next);
+    document.documentElement.dataset.motion = next ? "on" : "off";
+    try {
+      localStorage.setItem("520pdf.motion", next ? "on" : "off");
+    } catch {
+      // ignore storage failure
+    }
+  };
+
   const navLink = (to: string, label: string, Icon: React.ComponentType<{ className?: string }>) => {
     const active = pathname === to;
     return (
       <Link
         to={to}
-        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+        className={`cm-btn inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors ${
           active
-            ? "bg-[var(--accent-soft)] text-[var(--accent)]"
-            : "text-[var(--ink-secondary)] hover:bg-[var(--bg-subtle)] hover:text-[var(--ink-primary)]"
+            ? "bg-[var(--bg-subtle)] font-semibold text-[var(--ink-primary)]"
+            : "font-medium text-[var(--ink-secondary)] hover:bg-[var(--bg-subtle)]/70 hover:text-[var(--ink-primary)]"
         }`}
       >
-        <Icon className="h-[15px] w-[15px] shrink-0" aria-hidden="true" />
+        <Icon
+          className={`h-[15px] w-[15px] shrink-0 ${active ? "text-[var(--ink-primary)]" : "text-[var(--ink-muted)]"}`}
+          aria-hidden="true"
+        />
         <span>{label}</span>
       </Link>
     );
@@ -94,8 +125,8 @@ function SiteChrome({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <header className="sticky top-0 z-40 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+      <header className="sticky top-0 z-40 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]/85 backdrop-blur-md">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-6">
             <Link to="/" className="flex items-center gap-2" aria-label="520pdf home">
               <img
@@ -112,38 +143,49 @@ function SiteChrome({ children }: { children: React.ReactNode }) {
             <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
               {navLink("/", "All Tools", LayoutGrid)}
               {navLink("/drop", "Drop Hub", UploadCloud)}
-              {navLink("/compress-pdf", "Compress", Minimize2)}
               {navLink("/resume-builder", "Resume", FileUser)}
-              {navLink("/latex-resume", "LaTeX", FileCode2)}
-              {navLink("/equation-to-image", "Equations", Sigma)}
+              {navLink("/api-keys", "API Keys", KeyRound)}
+              {navLink("/docs", "Docs", BookOpen)}
             </nav>
           </div>
 
           <div className="flex items-center gap-2">
             <Link
               to="/drop"
-              className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-page)] px-3 py-1.5 text-xs font-semibold text-[var(--ink-primary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+              className="cm-btn inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-page)] px-3 py-1.5 text-xs font-medium text-[var(--ink-primary)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-subtle)]"
               title="Shared File Vault across tools"
             >
-              {files.length > 0 ? <FolderOpen className="h-3.5 w-3.5 text-[var(--accent)]" /> : <UploadCloud className="h-3.5 w-3.5" />}
-              <span className="tabular-nums">{files.length}</span>
-              <span className="hidden sm:inline">in vault</span>
+              {files.length > 0 ? <FolderOpen className="h-3.5 w-3.5 text-[var(--accent)]" /> : <UploadCloud className="h-3.5 w-3.5 text-[var(--ink-muted)]" />}
+              <span className="tabular-nums font-semibold">{files.length}</span>
+              <span className="hidden text-[var(--ink-secondary)] sm:inline">in vault</span>
             </Link>
 
             <Link
               to="/login"
-              className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-semibold text-[var(--ink-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--ink-primary)]"
+              className="cm-btn inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-medium text-[var(--ink-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--ink-primary)]"
               title="Workspace sign in (Argon2id)"
             >
-              <LogIn className="h-3.5 w-3.5" />
+              <LogIn className="h-3.5 w-3.5 text-[var(--ink-muted)]" />
               <span className="hidden sm:inline">Sign in</span>
             </Link>
 
             <button
               type="button"
+              onClick={toggleMotion}
+              aria-label={motionOn ? "Disable interface animations" : "Enable interface animations"}
+              title={motionOn ? "Animations on" : "Animations reduced"}
+              className={`cm-btn grid h-9 w-9 place-items-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] transition-colors hover:border-[var(--border-strong)] ${
+                motionOn ? "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]" : "text-[var(--ink-muted)] opacity-60"
+              }`}
+            >
+              <Sparkles className="h-4 w-4" />
+            </button>
+
+            <button
+              type="button"
               onClick={toggleTheme}
               aria-label="Toggle color theme"
-              className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--ink-secondary)] transition-colors hover:text-[var(--ink-primary)]"
+              className="cm-btn grid h-9 w-9 place-items-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--ink-secondary)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--ink-primary)]"
             >
               {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
@@ -153,8 +195,8 @@ function SiteChrome({ children }: { children: React.ReactNode }) {
 
       <main className="flex-1">{children}</main>
 
-      <footer className="mt-16 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-6 text-xs text-[var(--ink-muted)] sm:px-6">
+      <footer className="mt-16 border-t border-[var(--border-subtle)] bg-[var(--bg-band)]">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-6 text-xs text-[var(--ink-muted)] sm:px-6">
           <div className="flex items-center gap-2">
             <img src="/brand-assets/icon.svg" alt="" className="h-5 w-5" />
             <span className="font-semibold text-[var(--ink-primary)]">520pdf</span>

@@ -2,11 +2,17 @@
 .env
 .env.*
 !.env.example
+.520pdf-data/
+.venv-pdf2docx/
+.tessdata/
 .DS_Store
 **/.DS_Store
 *.pdf
 web/node_modules/
 web/build/
 web/.react-router/
+web/.source/
 web/**/dist/
 rust-analyze-temp.json
+__pycache__/
+*.pyc
