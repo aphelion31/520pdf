@@ -3,14 +3,17 @@ services:
     build:
       context: .
       dockerfile: docker/axum/Dockerfile
-    image: 520pdf-app:0.1.0
+    image: 520pdf-app:1.0.0
     ports:
       - "127.0.0.1:8520:8080"
     env_file: .env
     environment:
       BIND_ADDR: 0.0.0.0:8080
       TMPDIR: /tmp/pdf520
+      DATA_DIR: /var/lib/520pdf
     read_only: true
+    volumes:
+      - pdf520_data:/var/lib/520pdf
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=1g,uid=1001,gid=1001,mode=1777
       - /home/circleit:rw,noexec,nosuid,size=128m,uid=1001,gid=1001,mode=700
@@ -31,3 +34,5 @@ services:
 networks:
   pdf520:
     driver: bridge
+volumes:
+  pdf520_data:

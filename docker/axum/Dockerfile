@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-writer libreoffice-calc libreoffice-impress python3-matplotlib fonts-liberation fonts-dejavu-core fonts-noto-cjk default-jre-headless unzip gnupg \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1001 circleit && useradd --uid 1001 --gid circleit --create-home circleit \
-    && install -d -o circleit -g circleit -m 700 /tmp/pdf520
+    && install -d -o circleit -g circleit -m 700 /tmp/pdf520 /var/lib/520pdf
 COPY docker/axum/verapdf-install.xml /tmp/verapdf-install.xml
 RUN set -eux; \
     base=https://software.verapdf.org/releases/1.30/verapdf-greenfield-1.30.4-installer.zip; \
@@ -41,7 +41,7 @@ COPY --from=builder /app/target/release/pdf520 /usr/local/bin/pdf520
 COPY --from=web-builder /app/web/build/client /srv/520pdf/web/build/client
 COPY tools/smoke.sh /usr/local/share/pdf520/smoke.sh
 COPY tests/conversions-smoke.sh /usr/local/share/pdf520/conversions-smoke.sh
-ENV TMPDIR=/tmp/pdf520 PORT=8080 BIND_ADDR=0.0.0.0:8080 WEB_DIR=/srv/520pdf/web/build/client HOME=/home/circleit
+ENV TMPDIR=/tmp/pdf520 DATA_DIR=/var/lib/520pdf PORT=8080 BIND_ADDR=0.0.0.0:8080 WEB_DIR=/srv/520pdf/web/build/client HOME=/home/circleit
 USER circleit
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
